@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedGoat — Warehouse KPI Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg:      #0c0e16;
+            --surface: #161926;
+            --surface2:#1e2235;
+            --border:  #2a2f45;
+            --text:    #e2e8f0;
+            --muted:   #7c87a0;
+            --accent:  #f97316;
+            --sb-w:    224px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body { background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 14px; display: flex; }
+
+        /* ── Sidebar ── */
+        .sidebar { width: var(--sb-w); flex-shrink: 0; background: var(--surface);
+                   border-right: 1px solid var(--border); display: flex; flex-direction: column;
+                   position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; z-index: 50; }
+        .sb-brand { padding: 18px 16px 4px; font-size: 11px; font-weight: 700;
+                    letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+        .sb-title { font-size: 13px; font-weight: 600; color: var(--text);
+                    padding: 2px 16px 14px; border-bottom: 1px solid var(--border); }
+        .sb-section { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                      text-transform: uppercase; color: var(--muted); padding: 16px 16px 8px; }
+        .sb-nav a { display: block; padding: 8px 16px; color: var(--muted); text-decoration: none;
+                    font-size: 13px; transition: color .15s, background .15s;
+                    border-left: 2px solid transparent; }
+        .sb-nav a:hover  { color: var(--text); background: var(--surface2); }
+        .sb-nav a.active { color: var(--accent); border-left-color: var(--accent);
+                           background: rgba(249,115,22,.06); }
+        .date-btns { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
+        .date-btns button { background: var(--surface2); border: 1px solid var(--border);
+                            color: var(--muted); border-radius: 6px; padding: 4px 10px;
+                            font-size: 12px; cursor: pointer; transition: all .15s; }
+        .date-btns button:hover  { border-color: var(--accent); color: var(--text); }
+        .date-btns button.active { background: var(--accent); border-color: var(--accent);
+                                   color: #fff; font-weight: 600; }
+        .date-inputs { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 7px; }
+        .date-row { display: flex; align-items: center; gap: 8px; }
+        .date-row label { font-size: 11px; color: var(--muted); width: 28px; flex-shrink: 0; }
+        .date-row input[type=date] { background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 12px;
+            flex: 1; cursor: pointer; color-scheme: dark; min-width: 0; }
+        .date-row input[type=date]:focus { outline: none; border-color: var(--accent); }
+        .date-note { font-size: 10px; color: var(--muted); padding: 0 16px 10px; opacity: .7; }
+        .field-toggle { padding: 2px 16px 14px; display: flex; flex-direction: column; gap: 7px;
+                        border-bottom: 1px solid var(--border); }
+        .field-opt { display: flex; align-items: center; gap: 8px; font-size: 12px;
+                     color: var(--muted); cursor: pointer; padding: 3px 0; }
+        .field-opt input { accent-color: var(--accent); cursor: pointer; width: 14px; height: 14px; }
+        .field-opt.selected { color: var(--text); }
+        .sb-quick { display: flex; gap: 6px; padding: 2px 16px 10px; }
+        .sb-quick button { flex: 1; background: none; border: 1px solid var(--border);
+                           color: var(--muted); border-radius: 5px; padding: 3px 6px;
+                           font-size: 11px; cursor: pointer; transition: all .15s; }
+        .sb-quick button:hover { border-color: var(--muted); color: var(--text); }
+        .wh-check { padding: 4px 16px; }
+        .wh-check label { display: flex; align-items: center; gap: 7px; font-size: 12px;
+                          color: var(--muted); cursor: pointer; user-select: none; }
+        .wh-check input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+        .wh-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+        /* ── Main wrap ── */
+        .main-wrap { margin-left: var(--sb-w); flex: 1; min-width: 0;
+                     display: flex; flex-direction: column; min-height: 100vh; }
+        header { background: var(--surface); border-bottom: 1px solid var(--border);
+                 padding: 14px 28px; display: flex; align-items: center;
+                 justify-content: space-between; flex-shrink: 0; }
+        .hdr-left h1 { font-size: 18px; font-weight: 600; }
+        .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        #last-updated { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.6; }
+        main { padding: 22px 28px; flex: 1; }
+
+        /* ── Loading / error ── */
+        .section-label { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                         text-transform: uppercase; color: var(--muted); margin: 24px 0 10px; }
+        .section-label:first-child { margin-top: 0; }
+        #loading { display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; height: 60vh; gap: 14px; color: var(--muted); }
+        .spinner { width: 34px; height: 34px; border: 3px solid var(--border);
+                   border-top-color: var(--accent); border-radius: 50%;
+                   animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #error-box { display: none; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+                     border-radius: 8px; padding: 14px 18px; color: #fca5a5; margin: 16px 0; }
+
+        /* ── KPI cards ── */
+        .kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; }
+        .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+                    padding: 18px 20px; cursor: pointer; transition: border-color .15s, transform .1s; }
+        .kpi-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .kpi-label { font-size: 10px; font-weight: 700; letter-spacing: .1em;
+                     text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+        .kpi-value { font-size: 30px; font-weight: 700; line-height: 1; }
+        .kpi-sub   { font-size: 12px; color: var(--muted); margin-top: 5px; }
+        .pill { display: inline-block; font-size: 11px; font-weight: 600;
+                padding: 2px 9px; border-radius: 20px; margin-top: 8px; }
+        .green  { background: rgba(34,197,94,.15);   color: #4ade80; }
+        .yellow { background: rgba(234,179,8,.15);   color: #fbbf24; }
+        .red    { background: rgba(239,68,68,.15);   color: #f87171; }
+        .blue   { background: rgba(99,102,241,.15);  color: #a5b4fc; }
+        .muted-pill { background: rgba(124,135,160,.12); color: var(--muted);
+                      padding: 2px 9px; border-radius: 20px; font-size: 11px; }
+
+        /* ── Chart cards ── */
+        .row { display: grid; gap: 14px; margin-bottom: 14px; }
+        .row.col2 { grid-template-columns: 1fr 1fr; }
+        .row.col1 { grid-template-columns: 1fr; }
+        .card { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 10px; padding: 18px 20px; }
+        .card-title    { font-size: 13px; font-weight: 600; }
+        .card-subtitle { font-size: 11px; color: var(--muted); margin-top: 3px; margin-bottom: 14px; }
+        .chart-wrap      { position: relative; height: 250px; }
+        .chart-wrap.tall { height: 300px; }
+
+        /* ── Carrier performance table ── */
+        .perf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .perf-table th { padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 700;
+                         letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+                         border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .perf-table th.r, .perf-table td.r { text-align: right; }
+        .perf-table td { padding: 7px 12px; border-bottom: 1px solid rgba(42,47,69,.5); white-space: nowrap; }
+        .perf-table tr:hover td { background: var(--surface2); }
+        .wh-pills { display: flex; gap: 4px; flex-wrap: wrap; }
+        .wh-pill { font-size: 10px; padding: 1px 7px; border-radius: 8px;
+                   background: var(--surface2); color: var(--muted);
+                   border-left: 2px solid transparent; }
+
+        /* ── Status badges ── */
+        .st-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .st-green  { background: rgba(34,197,94,.15);   color: #4ade80; }
+        .st-yellow { background: rgba(234,179,8,.15);   color: #fbbf24; }
+        .st-red    { background: rgba(239,68,68,.15);   color: #f87171; }
+        .st-blue   { background: rgba(99,102,241,.15);  color: #a5b4fc; }
+        .st-muted  { background: rgba(124,135,160,.12); color: var(--muted); }
+
+        /* ── Modal ── */
+        .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7);
+                          backdrop-filter: blur(3px); z-index: 100; align-items: center; justify-content: center; }
+        .modal-backdrop.open { display: flex; }
+        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+                 width: 94vw; max-width: 1200px; max-height: 88vh; display: flex; flex-direction: column;
+                 box-shadow: 0 24px 64px rgba(0,0,0,.6); }
+        .modal-head { padding: 16px 22px; border-bottom: 1px solid var(--border);
+                      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        .modal-head h2 { font-size: 15px; font-weight: 600; }
+        .modal-head p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        .modal-close { background: none; border: 1px solid var(--border); color: var(--muted);
+                       width: 30px; height: 30px; border-radius: 6px; cursor: pointer; font-size: 16px;
+                       display: flex; align-items: center; justify-content: center; transition: color .15s; }
+        .modal-close:hover { color: var(--text); border-color: var(--muted); }
+        .modal-toolbar { padding: 10px 22px; border-bottom: 1px solid var(--border);
+                         display: flex; gap: 10px; flex-shrink: 0; flex-wrap: wrap; align-items: center; }
+        .modal-toolbar input[type=text], .modal-toolbar select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+        .modal-toolbar input[type=text] { flex: 1; min-width: 200px; }
+        .modal-toolbar input:focus, .modal-toolbar select:focus
+            { outline: none; border-color: var(--accent); }
+        .excl-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px;
+                       color: var(--muted); background: var(--surface2); border: 1px solid var(--border);
+                       border-radius: 6px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+        .excl-toggle input { cursor: pointer; accent-color: var(--accent); }
+        .modal-body   { overflow-y: auto; flex: 1; }
+        .modal-footer { padding: 10px 22px; border-top: 1px solid var(--border);
+                        font-size: 11px; color: var(--muted); flex-shrink: 0;
+                        display: flex; align-items: center; justify-content: space-between; }
+        .save-status { font-size: 11px; color: #4ade80; transition: opacity .3s; }
+        .save-status.hidden { opacity: 0; }
+
+        /* ── Detail table ── */
+        .dtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .dtable th { padding: 10px 14px; text-align: left; font-size: 10px; font-weight: 700;
+                     letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+                     background: var(--surface); border-bottom: 1px solid var(--border);
+                     position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+        .dtable th:hover { color: var(--text); }
+        .dtable th.sorted .sort-icon { opacity: 1; color: var(--accent); }
+        .dtable th .sort-icon { margin-left: 4px; opacity: .4; }
+        .dtable td { padding: 8px 14px; border-bottom: 1px solid rgba(42,47,69,.5);
+                     white-space: nowrap; vertical-align: middle; }
+        .dtable tr { cursor: pointer; }
+        .dtable tr:hover td { background: var(--surface2); }
+        .dtable tr.excluded td { opacity: .45; }
+        .dtable tr.excluded td.ann-cell { opacity: 1; }
+        .dtable tr.selected td { background: rgba(249,115,22,.07) !important;
+                                  border-left: 2px solid var(--accent); }
+        .badge-pass { background: rgba(34,197,94,.15);  color: #4ade80;
+                      padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+        .badge-fail { background: rgba(239,68,68,.15);  color: #f87171;
+                      padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+        .badge-na   { background: rgba(99,102,241,.1);  color: #a5b4fc;
+                      padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+        .wh-dot-sm { display: inline-block; width: 8px; height: 8px;
+                     border-radius: 50%; margin-right: 6px; }
+        .ots-late   { color: #f87171; font-weight: 600; }
+
+        /* Annotation inline controls */
+        .ann-select { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+                      border-radius: 5px; padding: 4px 6px; font-size: 11px; min-width: 130px; cursor: pointer; }
+        .ann-select:focus { outline: none; border-color: var(--accent); }
+        .ann-note { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+                    border-radius: 5px; padding: 4px 8px; font-size: 11px; width: 150px; }
+        .ann-note:focus { outline: none; border-color: var(--accent); }
+        .ann-note::placeholder { color: var(--muted); }
+        .ann-check { width: 15px; height: 15px; cursor: pointer; accent-color: #ef4444; }
+
+        /* ── Detail Drawer ── */
+        .drawer { position: fixed; top: 0; right: -420px; bottom: 0; width: 400px;
+                  background: var(--surface); border-left: 1px solid var(--border);
+                  z-index: 120; transition: right .22s ease;
+                  display: flex; flex-direction: column; }
+        .drawer.open { right: 0; }
+        .drawer-head { padding: 16px 20px; border-bottom: 1px solid var(--border);
+                       display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        .drawer-head h3 { font-size: 14px; font-weight: 600; }
+        .drawer-body { padding: 18px 20px; flex: 1; overflow-y: auto; }
+        .drow { display: flex; justify-content: space-between; align-items: flex-start;
+                padding: 9px 0; border-bottom: 1px solid rgba(42,47,69,.4); gap: 12px; }
+        .drow:last-child { border-bottom: none; }
+        .dlabel { font-size: 10px; color: var(--muted); font-weight: 700;
+                  letter-spacing: .08em; text-transform: uppercase; flex-shrink: 0; padding-top: 2px; }
+        .dval { font-size: 13px; color: var(--text); text-align: right;
+                max-width: 220px; word-break: break-all; }
+        .track-link { color: var(--accent); text-decoration: none; }
+        .track-link:hover { text-decoration: underline; }
+        .raw-status { font-size: 10px; color: var(--muted); margin-left: 6px; }
+
+        /* ── Items breakdown in drawer ── */
+        .items-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .items-title   { font-size: 10px; font-weight: 700; letter-spacing: .08em;
+                         text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+        .items-table   { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .items-table th { text-align: left; font-size: 10px; font-weight: 700;
+                          letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+                          padding: 4px 8px 6px; border-bottom: 1px solid var(--border); }
+        .items-table th.r, .items-table td.r { text-align: right; }
+        .items-table td { padding: 6px 8px; border-bottom: 1px solid rgba(42,47,69,.4); }
+        .items-table tr:last-child td { border-bottom: none; }
+        .items-loading { font-size: 12px; color: var(--muted); font-style: italic; padding: 4px 0; }
+    </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+    <div class="sb-brand">SpeedGoat</div>
+    <div class="sb-title">Warehouse KPIs</div>
+
+    <div class="sb-section">Navigate</div>
+    <nav class="sb-nav" id="sb-nav">
+        <a href="#s-summary"     class="active">Summary</a>
+        <a href="#s-volume">Volume</a>
+        <a href="#s-performance">Warehouse Performance</a>
+        <a href="#s-carrier-perf">Carrier Performance</a>
+        <a href="#s-carrier-mix">Carrier Mix</a>
+    </nav>
+
+    <div class="sb-section">Date range</div>
+    <div class="date-btns">
+        <button id="dr-7"  onclick="setPreset(7)">7d</button>
+        <button id="dr-14" onclick="setPreset(14)">14d</button>
+        <button id="dr-30" onclick="setPreset(30)" class="active">30d</button>
+        <button id="dr-60" onclick="setPreset(60)">60d</button>
+        <button id="dr-90" onclick="setPreset(90)">90d</button>
+    </div>
+    <div class="date-inputs">
+        <div class="date-row">
+            <label>From</label>
+            <input type="date" id="date-from" onchange="onDateChange()">
+        </div>
+        <div class="date-row">
+            <label>To</label>
+            <input type="date" id="date-to" onchange="onDateChange()">
+        </div>
+    </div>
+    <div class="date-note">Max 90 days of data available</div>
+    <div class="sb-section" style="padding-bottom:8px">Filter date by</div>
+    <div class="field-toggle">
+        <label class="field-opt selected" id="fopt-shipped">
+            <input type="radio" name="date-field" value="shipped_at" checked onchange="onFieldChange(this)">
+            Shipped date
+        </label>
+        <label class="field-opt" id="fopt-order">
+            <input type="radio" name="date-field" value="order_created_at" onchange="onFieldChange(this)">
+            Order creation date
+        </label>
+    </div>
+
+    <div class="sb-section">Warehouses</div>
+    <div class="sb-quick">
+        <button onclick="setAllWh(true)">All</button>
+        <button onclick="setAllWh(false)">None</button>
+    </div>
+    <div id="wh-checks"></div>
+</aside>
+
+<!-- ── Detail Drawer ── -->
+<div class="drawer" id="detail-drawer">
+    <div class="drawer-head">
+        <h3>Fulfilment Detail</h3>
+        <button class="modal-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body">
+        <p style="color:var(--muted);font-size:13px">Click a row in the detail table to see the full fulfilment record.</p>
+    </div>
+</div>
+
+<!-- ── Modal ── -->
+<div class="modal-backdrop" id="modal-backdrop" onclick="closeModal(event)">
+    <div class="modal">
+        <div class="modal-head">
+            <div><h2 id="modal-title"></h2><p id="modal-subtitle"></p></div>
+            <button class="modal-close" onclick="closeModalDirect()">✕</button>
+        </div>
+        <div class="modal-toolbar">
+            <input type="text" id="modal-search"
+                   placeholder="Search order #, warehouse, carrier, tracking…"
+                   oninput="renderTable()">
+            <select id="modal-wh-filter" onchange="renderTable()">
+                <option value="">All warehouses</option>
+            </select>
+            <select id="modal-sla-filter" onchange="renderTable()">
+                <option value="">All SLA</option>
+                <option value="pass">Within SLA</option>
+                <option value="fail">Breached SLA</option>
+                <option value="na">No data</option>
+            </select>
+            <label class="excl-toggle">
+                <input type="checkbox" id="modal-show-excl" onchange="renderTable()" checked>
+                Show excluded
+            </label>
+        </div>
+        <div class="modal-body">
+            <table class="dtable" id="modal-table">
+                <thead id="modal-thead"></thead>
+                <tbody id="modal-tbody"></tbody>
+            </table>
+        </div>
+        <div class="modal-footer">
+            <span id="modal-footer"></span>
+            <span class="save-status hidden" id="save-status">✓ Saved</span>
+        </div>
+    </div>
+</div>
+
+<!-- ── Main Wrap ── -->
+<div class="main-wrap">
+    <header>
+        <div class="hdr-left">
+            <h1>Warehouse KPI Dashboard</h1>
+            <p id="hdr-subtitle">Loading…</p>
+        </div>
+        <div id="last-updated"></div>
+    </header>
+
+    <main>
+        <div id="loading"><div class="spinner"></div><span>Fetching warehouse data…</span></div>
+        <div id="error-box"></div>
+        <div id="dash" style="display:none">
+
+            <div class="section-label" id="s-summary">Summary</div>
+            <div class="kpi-grid">
+                <div class="kpi-card" id="kpi-total"    onclick="openModal('shipments')"></div>
+                <div class="kpi-card" id="kpi-ots"      onclick="openModal('ots')"></div>
+                <div class="kpi-card" id="kpi-sla"      onclick="openModal('sla')"></div>
+                <div class="kpi-card" id="kpi-carriers" onclick="openModal('carriers')"></div>
+            </div>
+
+            <div class="section-label" id="s-volume">Volume</div>
+            <div class="row col2">
+                <div class="card">
+                    <div class="card-title">Orders vs Shipments by Warehouse</div>
+                    <div class="card-subtitle">Unique orders vs total fulfilments — gap indicates split fulfilments</div>
+                    <div class="chart-wrap"><canvas id="ch-volume"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Daily Shipment Trend</div>
+                    <div class="card-subtitle">All days · shipments per day by warehouse</div>
+                    <div class="chart-wrap"><canvas id="ch-trend"></canvas></div>
+                </div>
+            </div>
+
+            <div class="section-label" id="s-performance">Warehouse Performance</div>
+            <div class="row col2">
+                <div class="card">
+                    <div class="card-title">Avg Order-to-Ship (days)</div>
+                    <div class="card-subtitle">Order creation (Shopify) → despatch (WMS) · annotated exclusions removed</div>
+                    <div class="chart-wrap"><canvas id="ch-ots"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">48hr SLA Compliance</div>
+                    <div class="card-subtitle">% of orders despatched within 48 hours of order creation</div>
+                    <div class="chart-wrap"><canvas id="ch-sla"></canvas></div>
+                </div>
+            </div>
+
+            <div class="section-label" id="s-carrier-perf">Carrier Performance</div>
+            <div class="row col1">
+                <div class="card">
+                    <div class="card-title">Performance by Carrier</div>
+                    <div class="card-subtitle">Avg order-to-ship, SLA compliance, and volume per carrier across all warehouses</div>
+                    <div id="carrier-perf-table" style="overflow-x:auto"></div>
+                </div>
+            </div>
+
+            <div class="section-label" id="s-carrier-mix">Carrier Mix</div>
+            <div class="row col1">
+                <div class="card">
+                    <div class="card-title">Carrier Mix by Warehouse</div>
+                    <div class="card-subtitle">Shipment count stacked by carrier</div>
+                    <div class="chart-wrap tall"><canvas id="ch-carrier"></canvas></div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</div>
+
+<script>
+const URL_BASE = 'https://prcbzlnwqmtvqqpxwmgg.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2J6bG53cW10dnFxcHh3bWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDIyNDAsImV4cCI6MjA4ODgxODI0MH0.ujt8r3ZjhZGMYKQNqJJ9a8JNpNXLyr2_wKgq98dxdVc';
+
+const WAREHOUSES    = ['CN-LHS','UK-Mintsoft','EU-ActiveAnts','US-Novex1','AU-Goodcang','CA-Propack'];
+const WH_COLOR      = { 'CN-LHS':'#f97316','UK-Mintsoft':'#38bdf8','EU-ActiveAnts':'#a78bfa',
+                        'US-Novex1':'#34d399','AU-Goodcang':'#fbbf24','CA-Propack':'#f472b6' };
+const CARRIER_PAL   = ['#f97316','#38bdf8','#a78bfa','#34d399','#fbbf24','#f472b6',
+                        '#e2e8f0','#06b6d4','#84cc16','#ec4899','#14b8a6'];
+
+const REASON_CODES = {
+    'OOS':     { label:'Out of stock',    excludeByDefault:true  },
+    'CARRIER': { label:'Carrier delay',   excludeByDefault:true  },
+    'CUSTOM':  { label:'Custom order',    excludeByDefault:false },
+    'HOLIDAY': { label:'Holiday period',  excludeByDefault:false },
+    'DATA':    { label:'Data error',      excludeByDefault:true  },
+    'OTHER':   { label:'Other',           excludeByDefault:false },
+};
+
+// ── Status normalisation ──────────────────────────────────────────────────────
+// Raw WMS statuses vary per system: Zenventory uses codes like '5', Mintsoft
+// uses 'success', ActiveAnts uses 'shipped', etc. All are mapped to a standard
+// set so the dashboard shows consistent labels.
+const _STATUS_MAP = {
+    '5':'Shipped','success':'Shipped','shipped':'Shipped','completed':'Shipped',
+    'despatched':'Shipped','dispatched':'Shipped','fulfilled':'Shipped',
+    'pending':'Pending','processing':'Processing','created':'Processing',
+    'awaiting_shipment':'Processing','on_hold':'Processing',
+    'cancelled':'Cancelled','failed':'Failed','error':'Error','failed_delivery':'Failed',
+};
+const _STATUS_TONE = { Shipped:'green',Pending:'yellow',Processing:'yellow',
+                       Cancelled:'red',Failed:'red',Error:'red' };
+function normStatus(raw) {
+    if (!raw) return { label:'Unknown', tone:'blue' };
+    const lbl  = _STATUS_MAP[String(raw).toLowerCase().trim()] || raw;
+    const tone = _STATUS_TONE[lbl] || 'muted';
+    return { label:lbl, tone };
+}
+
+// ── Carrier normalisation ────────────────────────────────────────────────────
+// EU-ActiveAnts stores 'Shipping method' as the carrier field. Fall back to
+// service_name (which is the actual method) when carrier is generic.
+function resolveCarrier(s) {
+    const raw = (s.carrier || '').trim();
+    if (!raw || /^shipping.?method$/i.test(raw)) return s.service_name || 'Unknown';
+    return raw;
+}
+
+// ── Chart.js defaults ────────────────────────────────────────────────────────
+Chart.defaults.color        = '#7c87a0';
+Chart.defaults.borderColor  = '#2a2f45';
+Chart.defaults.font.family  = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+Chart.defaults.font.size    = 12;
+const TOOLTIP = { backgroundColor:'#1e2235',borderColor:'#2a2f45',borderWidth:1,
+                  titleColor:'#e2e8f0',bodyColor:'#7c87a0',padding:10 };
+const SCALES  = { x:{ grid:{ color:'#2a2f4550' } }, y:{ grid:{ color:'#2a2f4550' } } };
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let G = {
+    enriched: [], filtered: [],
+    dateFrom:  null,   // JS Date (start of day)
+    dateTo:    null,   // JS Date (end of day)
+    dateField: 'shipped_at',  // 'shipped_at' | 'order_created_at'
+    whFilter: new Set(WAREHOUSES),
+};
+let saveTimer = null, modalMode = null, sortCol = null, sortDir = -1, selectedId = null;
+
+// ── Fetch ─────────────────────────────────────────────────────────────────────
+async function fetchAll(table, select, filters={}) {
+    const PAGE = 1000; let rows = [], offset = 0;
+    const headers = { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}` };
+    while (true) {
+        const u = new URL(`${URL_BASE}/rest/v1/${table}`);
+        u.searchParams.set('select', select);
+        u.searchParams.set('limit',  PAGE);
+        u.searchParams.set('offset', offset);
+        for (const [k,v] of Object.entries(filters)) u.searchParams.set(k, v);
+        const r = await fetch(u, { headers });
+        if (!r.ok) throw new Error(`${table}: ${r.status} — ${await r.text()}`);
+        const page = await r.json();
+        rows = rows.concat(page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+    }
+    return rows;
+}
+
+// ── Annotation save ───────────────────────────────────────────────────────────
+async function saveAnnotation(wsi, ws, son, updates) {
+    await fetch(`${URL_BASE}/rest/v1/shipment_annotations`, {
+        method: 'POST',
+        headers: { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}`,
+                   'Content-Type':'application/json',
+                   'Prefer':'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ warehouse_shipment_id:wsi, warehouse_slug:ws,
+            shopify_order_number:son, annotated_at:new Date().toISOString(), ...updates }),
+    });
+    const el = document.getElementById('save-status');
+    el.classList.remove('hidden');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => el.classList.add('hidden'), 2500);
+}
+
+// ── Annotation handlers ───────────────────────────────────────────────────────
+function onReasonChange(wsi, ws, son, sel) {
+    const code = sel.value;
+    const row  = G.enriched.find(r => r.warehouse_shipment_id===wsi && r.warehouse_slug===ws);
+    if (!row) return;
+    const defExcl = code ? REASON_CODES[code].excludeByDefault : false;
+    row.reason_code = code || null;
+    row.exclude_from_avg = defExcl;
+    const chk  = document.getElementById(`excl-${wsi}`);
+    const note = document.getElementById(`note-${wsi}`);
+    if (chk)  chk.checked = defExcl;
+    if (note) note.style.display = code ? 'inline-block' : 'none';
+    saveAnnotation(wsi, ws, son, { reason_code:code||null, exclude_from_avg:defExcl });
+    renderKPIs();
+    updateRowStyle(wsi, defExcl);
+}
+function onNoteChange(wsi, ws, son, el) {
+    const row = G.enriched.find(r => r.warehouse_shipment_id===wsi && r.warehouse_slug===ws);
+    if (row) row.note = el.value;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => saveAnnotation(wsi, ws, son, { note:el.value }), 800);
+}
+function onExcludeChange(wsi, ws, son, el) {
+    const row = G.enriched.find(r => r.warehouse_shipment_id===wsi && r.warehouse_slug===ws);
+    if (row) row.exclude_from_avg = el.checked;
+    saveAnnotation(wsi, ws, son, { exclude_from_avg:el.checked });
+    renderKPIs();
+    updateRowStyle(wsi, el.checked);
+}
+function updateRowStyle(wsi, excluded) {
+    const tr = document.getElementById(`tr-${wsi}`);
+    if (!tr) return;
+    tr.className = (excluded?'excluded':'') + (selectedId===wsi?' selected':'');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const daysAgo     = n => new Date(Date.now()-n*864e5).toISOString();
+const toDateInput = d => { const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+const fromDateInput = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+const avg      = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;
+const fmtDt    = dt => dt ? new Date(dt).toLocaleString('en-ZA',{
+    timeZone:'Africa/Johannesburg',day:'2-digit',month:'short',year:'numeric',
+    hour:'2-digit',minute:'2-digit'}) : '—';
+const fmtHrs   = h => h===null ? '—' : h<24 ? `${h.toFixed(1)}h` : `${(h/24).toFixed(1)}d`;
+const isoLocal = dt => {
+    const d=new Date(dt), p=n=>String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+};
+function groupBy(arr,fn) { return arr.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
+function businessDaysBetween(from, to) {
+    const days=[]; let d=new Date(from); d.setHours(0,0,0,0);
+    const end=new Date(to); end.setHours(23,59,59,999);
+    while (d<=end && days.length<65) {
+        if (d.getDay()!==0 && d.getDay()!==6) days.push(isoLocal(d));
+        d=new Date(d.getTime()+864e5);
+    }
+    return days;
+}
+function allDaysBetween(from, to) {
+    const days=[]; let d=new Date(from); d.setHours(0,0,0,0);
+    const end=new Date(to); end.setHours(23,59,59,999);
+    while (d<=end && days.length<200) { days.push(isoLocal(d)); d=new Date(d.getTime()+864e5); }
+    return days;
+}
+function destroyChart(id) { const ch=Chart.getChart(id); if(ch) ch.destroy(); }
+function merge(a,b) {
+    const out=Object.assign({},a);
+    for (const k of Object.keys(b||{}))
+        out[k]=(b[k]&&typeof b[k]==='object'&&!Array.isArray(b[k]))?merge(a[k]||{},b[k]):b[k];
+    return out;
+}
+function kpi(id, label, value, sub, tone) {
+    document.getElementById(id).innerHTML =
+        `<div class="kpi-label">${label}</div>
+         <div class="kpi-value">${value}</div>
+         <div class="kpi-sub">${sub}</div>
+         <span class="pill ${tone}">${label}</span>`;
+}
+function bar(id, labels, datasets, extra={}) {
+    destroyChart(id);
+    new Chart(document.getElementById(id), { type:'bar', data:{ labels, datasets },
+        options: merge({ responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{ display:false }, tooltip:TOOLTIP }, scales:SCALES }, extra) });
+}
+function line(id, labels, datasets, extra={}) {
+    destroyChart(id);
+    new Chart(document.getElementById(id), { type:'line', data:{ labels, datasets },
+        options: merge({ responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{ display:true, position:'bottom',
+                labels:{ boxWidth:10, padding:14, color:'#7c87a0' } }, tooltip:TOOLTIP },
+            scales:SCALES }, extra) });
+}
+
+// ── Sidebar controls ──────────────────────────────────────────────────────────
+function buildWhChecks() {
+    document.getElementById('wh-checks').innerHTML = WAREHOUSES.map(w =>
+        `<div class="wh-check"><label>
+            <input type="checkbox" checked id="whck-${w.replace(/\W/g,'_')}"
+                   onchange="toggleWh('${w}',this.checked)">
+            <span class="wh-dot" style="background:${WH_COLOR[w]}"></span>${w}
+        </label></div>`).join('');
+}
+function setAllWh(on) {
+    WAREHOUSES.forEach(w => {
+        G.whFilter[on?'add':'delete'](w);
+        const el=document.getElementById(`whck-${w.replace(/\W/g,'_')}`);
+        if(el) el.checked=on;
+    });
+    applyFilters();
+}
+function toggleWh(wh, on) {
+    G.whFilter[on?'add':'delete'](wh);
+    applyFilters();
+}
+function setPreset(n) {
+    const to=new Date(); to.setHours(23,59,59,999);
+    const from=new Date(Date.now()-n*864e5); from.setHours(0,0,0,0);
+    G.dateFrom=from; G.dateTo=to;
+    const fi=document.getElementById('date-from'), ti=document.getElementById('date-to');
+    if(fi) fi.value=toDateInput(from);
+    if(ti) ti.value=toDateInput(to);
+    document.querySelectorAll('.date-btns button').forEach(b=>b.classList.remove('active'));
+    const btn=document.getElementById(`dr-${n}`); if(btn) btn.classList.add('active');
+    applyFilters();
+}
+function onDateChange() {
+    const fv=document.getElementById('date-from').value;
+    const tv=document.getElementById('date-to').value;
+    if(!fv||!tv) return;
+    G.dateFrom=fromDateInput(fv); G.dateFrom.setHours(0,0,0,0);
+    G.dateTo=fromDateInput(tv);   G.dateTo.setHours(23,59,59,999);
+    // Deactivate presets since user chose custom range
+    document.querySelectorAll('.date-btns button').forEach(b=>b.classList.remove('active'));
+    applyFilters();
+}
+function onFieldChange(radio) {
+    G.dateField=radio.value;
+    document.querySelectorAll('.field-opt').forEach(l=>l.classList.remove('selected'));
+    radio.closest('.field-opt').classList.add('selected');
+    applyFilters();
+}
+
+// ── Filters → re-render ───────────────────────────────────────────────────────
+function applyFilters() {
+    const from=G.dateFrom, to=G.dateTo, field=G.dateField;
+    G.filtered = G.enriched.filter(s => {
+        if (!G.whFilter.has(s.warehouse_name)) return false;
+        const raw = field==='order_created_at' ? s.order_created_at : s.shipped_at;
+        if (!raw) return false;
+        const dt=new Date(raw);
+        return dt>=from && dt<=to;
+    });
+    renderKPIs();
+    renderAllCharts();
+    const w=G.whFilter.size;
+    const fmtDate=d=>d.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'});
+    const fieldLabel=field==='order_created_at'?'order created':'shipped';
+    document.getElementById('hdr-subtitle').textContent =
+        `${w===WAREHOUSES.length?'All warehouses':`${w} warehouse${w!==1?'s':''}`} · `+
+        `${fmtDate(from)} → ${fmtDate(to)} (by ${fieldLabel}) · `+
+        `${G.filtered.length.toLocaleString()} shipments`;
+}
+
+// ── KPI cards ─────────────────────────────────────────────────────────────────
+function renderKPIs() {
+    const otsAll    = G.filtered.filter(s=>s.otsH!==null);
+    const otsRows   = otsAll.filter(s=>!s.exclude_from_avg);
+    const excluded  = otsAll.length-otsRows.length;
+    const avgOts    = avg(otsRows.map(s=>s.otsH));
+    const slaRows   = G.filtered.filter(s=>s.withinSla!==null&&!s.exclude_from_avg);
+    const slaPct    = slaRows.length ? slaRows.filter(s=>s.withinSla).length/slaRows.length*100 : null;
+    const carriers  = new Set(G.filtered.map(resolveCarrier).filter(Boolean)).size;
+
+    kpi('kpi-total','Shipments', G.filtered.length.toLocaleString(),
+        `${[...new Set(G.filtered.map(s=>s.warehouse_name))].length} warehouses active`,'blue');
+    kpi('kpi-ots','Avg Order-to-Ship',
+        avgOts!==null?(avgOts<24?`${avgOts.toFixed(1)}h`:`${(avgOts/24).toFixed(1)}d`):'—',
+        otsRows.length?`${otsRows.length.toLocaleString()} orders${excluded?` · ${excluded} excluded`:''}`:'No order data matched',
+        avgOts===null?'blue':avgOts<=24?'green':avgOts<=48?'yellow':'red');
+    kpi('kpi-sla','48hr SLA',
+        slaPct!==null?`${slaPct.toFixed(1)}%`:'—',
+        slaRows.length?`${slaRows.length.toLocaleString()} orders with data`:'No matched orders',
+        slaPct===null?'blue':slaPct>=90?'green':slaPct>=70?'yellow':'red');
+    G.rangeDays = G.dateFrom && G.dateTo ? Math.round((new Date(G.dateTo)-new Date(G.dateFrom))/864e5)+1 : '';
+    kpi('kpi-carriers','Active Carriers', carriers, `last ${G.rangeDays} days`, 'blue');
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+function renderAllCharts() {
+    const byWh   = groupBy(G.filtered, s=>s.warehouse_name);
+    const whList = WAREHOUSES.filter(w=>byWh[w]);
+
+    // Volume: unique orders vs total shipments (side-by-side)
+    const uniqueOrders = {};
+    for (const s of G.filtered) {
+        if (!uniqueOrders[s.warehouse_name]) uniqueOrders[s.warehouse_name] = new Set();
+        if (s.shopify_order_number) uniqueOrders[s.warehouse_name].add(s.shopify_order_number);
+    }
+    bar('ch-volume', whList, [
+        { label:'Shipments (fulfilments)',
+          data: whList.map(w=>byWh[w].length),
+          backgroundColor: whList.map(w=>WH_COLOR[w]+'bb'),
+          borderColor: whList.map(w=>WH_COLOR[w]), borderWidth:1, borderRadius:4 },
+        { label:'Unique orders',
+          data: whList.map(w=>(uniqueOrders[w]||new Set()).size),
+          backgroundColor: whList.map(w=>WH_COLOR[w]+'33'),
+          borderColor: whList.map(w=>WH_COLOR[w]), borderWidth:1, borderRadius:4 },
+    ], { indexAxis:'y',
+         plugins:{ legend:{ display:true, position:'bottom',
+             labels:{ boxWidth:10, padding:14, color:'#7c87a0' } }, tooltip:TOOLTIP },
+         scales:SCALES });
+
+    // Daily trend — all days, raw shipment counts
+    const allDays = allDaysBetween(G.dateFrom, G.dateTo);
+    line('ch-trend', allDays, whList.map(w => {
+        const byDay = groupBy(byWh[w], s=>isoLocal(s.shipped_at));
+        return { label:w,
+                 data: allDays.map(d => { const c=(byDay[d]||[]).length; return c===0 ? null : c; }),
+                 borderColor:WH_COLOR[w], backgroundColor:WH_COLOR[w]+'18',
+                 fill:false, tension:0.35, pointRadius:2, borderWidth:2,
+                 spanGaps:false };
+    }), {
+        scales: { ...SCALES,
+            y: { ...SCALES.y,
+                 ticks:{ color:'#7c87a0' },
+                 title:{ display:true, text:'Shipments', color:'#7c87a0', font:{size:11} }
+            }
+        }
+    });
+
+    // OTS by warehouse
+    const otsRows  = G.filtered.filter(s=>s.otsH!==null&&!s.exclude_from_avg);
+    const otsByWh  = groupBy(otsRows, s=>s.warehouse_name);
+    const otsWhs   = WAREHOUSES.filter(w=>otsByWh[w]);
+    bar('ch-ots', otsWhs,
+        [{ label:'Avg days',
+           data: otsWhs.map(w=>+(avg(otsByWh[w].map(s=>s.otsH))/24).toFixed(2)),
+           backgroundColor:otsWhs.map(w=>WH_COLOR[w]+'bb'),
+           borderColor:otsWhs.map(w=>WH_COLOR[w]), borderWidth:1, borderRadius:4 },
+         { label:'2d SLA', data:otsWhs.map(()=>2), type:'line',
+           borderColor:'#ef4444', borderWidth:1, borderDash:[5,4], pointRadius:0,
+           backgroundColor:'transparent' }],
+        { plugins:{ legend:{ display:true, position:'bottom',
+              labels:{ boxWidth:10, padding:14, color:'#7c87a0' } } },
+          scales:{ ...SCALES, y:{ ...SCALES.y, ticks:{ callback:v=>v+'d' } } } });
+
+    // SLA by warehouse
+    const slaRows  = G.filtered.filter(s=>s.withinSla!==null&&!s.exclude_from_avg);
+    const slaByWh  = groupBy(slaRows, s=>s.warehouse_name);
+    const slaWhs   = WAREHOUSES.filter(w=>slaByWh[w]);
+    const slaPcts  = slaWhs.map(w=>{const r=slaByWh[w];return+(r.filter(s=>s.withinSla).length/r.length*100).toFixed(1);});
+    bar('ch-sla', slaWhs,
+        [{ label:'% within 48hr', data:slaPcts,
+           backgroundColor:slaPcts.map(v=>v>=90?'#22c55e55':v>=70?'#eab30855':'#ef444455'),
+           borderColor:slaPcts.map(v=>v>=90?'#22c55e':v>=70?'#eab308':'#ef4444'),
+           borderWidth:1, borderRadius:4 }],
+        { scales:{ ...SCALES, y:{ ...SCALES.y, max:100, ticks:{ callback:v=>v+'%' } } } });
+
+    // Carrier performance table
+    const cpStats = {};
+    for (const s of G.filtered) {
+        const c=resolveCarrier(s);
+        if (!cpStats[c]) cpStats[c]={carrier:c,count:0,otsSum:0,otsCnt:0,slaPass:0,slaCnt:0,whs:new Set()};
+        cpStats[c].count++;
+        cpStats[c].whs.add(s.warehouse_name);
+        if (s.otsH!==null&&!s.exclude_from_avg) { cpStats[c].otsSum+=s.otsH; cpStats[c].otsCnt++; }
+        if (s.withinSla!==null&&!s.exclude_from_avg) { if(s.withinSla)cpStats[c].slaPass++; cpStats[c].slaCnt++; }
+    }
+    const cpRows = Object.values(cpStats).sort((a,b)=>b.count-a.count);
+    const total  = G.filtered.length || 1;
+    document.getElementById('carrier-perf-table').innerHTML =
+        `<table class="perf-table">
+        <thead><tr>
+            <th>Carrier</th>
+            <th class="r">Shipments</th>
+            <th class="r">Share</th>
+            <th class="r">Avg OTS</th>
+            <th class="r">48hr SLA</th>
+            <th>Warehouses</th>
+        </tr></thead><tbody>
+        ${cpRows.map(r=>{
+            const otsAvg = r.otsCnt ? r.otsSum/r.otsCnt : null;
+            const slaP   = r.slaCnt ? (r.slaPass/r.slaCnt*100) : null;
+            const sTone  = slaP===null?'muted-pill':slaP>=90?'pill green':slaP>=70?'pill yellow':'pill red';
+            const wPills = [...r.whs].map(w=>`<span class="wh-pill" style="border-left-color:${WH_COLOR[w]||'#888'}">${w}</span>`).join('');
+            return `<tr>
+                <td style="font-weight:600">${r.carrier}</td>
+                <td class="r">${r.count.toLocaleString()}</td>
+                <td class="r" style="color:var(--muted)">${(r.count/total*100).toFixed(1)}%</td>
+                <td class="r">${fmtHrs(otsAvg)}</td>
+                <td class="r"><span class="${sTone}" style="margin:0">${slaP!==null?slaP.toFixed(1)+'%':'—'}</span></td>
+                <td><div class="wh-pills">${wPills}</div></td>
+            </tr>`;
+        }).join('')}
+        </tbody></table>`;
+
+    // Carrier mix stacked bar
+    const cTotals={};
+    for (const s of G.filtered){const c=resolveCarrier(s);cTotals[c]=(cTotals[c]||0)+1;}
+    const allC = Object.entries(cTotals).sort((a,b)=>b[1]-a[1]).map(([c])=>c);
+    const cByWh={};
+    for (const s of G.filtered){const w=s.warehouse_name,c=resolveCarrier(s);if(!cByWh[w])cByWh[w]={};cByWh[w][c]=(cByWh[w][c]||0)+1;}
+    bar('ch-carrier', whList, allC.map((c,i)=>({
+        label:c, data:whList.map(w=>cByWh[w]?.[c]||0),
+        backgroundColor:CARRIER_PAL[i%CARRIER_PAL.length]+'cc',
+        borderColor:CARRIER_PAL[i%CARRIER_PAL.length], borderWidth:1, borderRadius:2,
+    })), { plugins:{ legend:{ display:true, position:'right',
+               labels:{ boxWidth:10, padding:12, color:'#7c87a0' } } },
+           scales:{ x:{ ...SCALES.x, stacked:true }, y:{ ...SCALES.y, stacked:true } } });
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openModal(mode) {
+    modalMode=mode; sortCol=mode==='ots'||mode==='sla'?'otsH':'shipped_at'; sortDir=-1;
+    const titles={
+        shipments:['All Shipments',`Last ${G.rangeDays} days`],
+        ots:      ['Order-to-Ship Detail','Sorted worst first · flag outliers to exclude from averages'],
+        sla:      ['48hr SLA Detail','Flag shipments to exclude from averages'],
+        carriers: ['Carrier Breakdown','Shipment count by carrier and warehouse'],
+    };
+    document.getElementById('modal-title').textContent    = titles[mode][0];
+    document.getElementById('modal-subtitle').textContent = titles[mode][1];
+    document.getElementById('modal-search').value         = '';
+    document.getElementById('modal-sla-filter').value     = '';
+    document.getElementById('modal-show-excl').checked    = true;
+    const wsel=document.getElementById('modal-wh-filter');
+    wsel.innerHTML='<option value="">All warehouses</option>';
+    WAREHOUSES.forEach(w=>{if(G.filtered.some(r=>r.warehouse_name===w))
+        wsel.innerHTML+=`<option value="${w}">${w}</option>`;});
+    wsel.value='';
+    renderTable();
+    document.getElementById('modal-backdrop').classList.add('open');
+    document.body.style.overflow='hidden';
+}
+function closeModal(e) { if(e.target===document.getElementById('modal-backdrop')) closeModalDirect(); }
+function closeModalDirect() {
+    document.getElementById('modal-backdrop').classList.remove('open');
+    document.body.style.overflow='';
+    closeDrawer();
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeModalDirect(); } });
+
+function renderTable() {
+    const rawSearch = document.getElementById('modal-search').value.toLowerCase();
+    const search    = rawSearch.replace(/^#+/, '');  // strip # so "#12345" matches "12345"
+    const whF       = document.getElementById('modal-wh-filter').value;
+    const slaF      = document.getElementById('modal-sla-filter').value;
+    const showExcl  = document.getElementById('modal-show-excl').checked;
+
+    let rows = [...G.filtered];
+    if (whF)           rows=rows.filter(r=>r.warehouse_name===whF);
+    if (slaF==='pass') rows=rows.filter(r=>r.withinSla===true);
+    if (slaF==='fail') rows=rows.filter(r=>r.withinSla===false);
+    if (slaF==='na')   rows=rows.filter(r=>r.withinSla===null);
+    if (!showExcl)     rows=rows.filter(r=>!r.exclude_from_avg);
+    if (search) rows=rows.filter(r=>
+        (r.shopify_order_number||'').toLowerCase().includes(search) ||
+        (r.warehouse_name||'').toLowerCase().includes(search) ||
+        resolveCarrier(r).toLowerCase().includes(search) ||
+        (r.tracking_number||'').toLowerCase().includes(search));
+    if (modalMode==='ots'||modalMode==='sla') rows=rows.filter(r=>r.otsH!==null);
+
+    if (sortCol) rows.sort((a,b)=>{
+        const av=a[sortCol],bv=b[sortCol];
+        if(av===null&&bv===null)return 0; if(av===null)return 1; if(bv===null)return -1;
+        return sortDir*(av<bv?-1:av>bv?1:0);
+    });
+
+    // Carriers mode
+    if (modalMode==='carriers') {
+        const agg={};
+        for(const r of G.filtered){
+            const c=resolveCarrier(r),w=r.warehouse_name,k=`${c}||${w}`;
+            if(!agg[k])agg[k]={carrier:c,warehouse_name:w,count:0};
+            agg[k].count++;
+        }
+        const aggRows=Object.values(agg)
+            .filter(r=>(!whF||r.warehouse_name===whF)&&(!search||r.carrier.toLowerCase().includes(search)||r.warehouse_name.toLowerCase().includes(search)))
+            .sort((a,b)=>b.count-a.count);
+        document.getElementById('modal-thead').innerHTML=`<tr><th>Carrier</th><th>Warehouse</th><th style="text-align:right">Shipments</th></tr>`;
+        document.getElementById('modal-tbody').innerHTML=aggRows.map(r=>`<tr>
+            <td>${r.carrier}</td>
+            <td><span class="wh-dot-sm" style="background:${WH_COLOR[r.warehouse_name]||'#888'}"></span>${r.warehouse_name}</td>
+            <td style="text-align:right;font-weight:600">${r.count}</td>
+        </tr>`).join('');
+        document.getElementById('modal-footer').textContent=`${aggRows.length} carrier/warehouse combinations`;
+        return;
+    }
+
+    const showAnn = modalMode==='ots'||modalMode==='sla';
+    const reasonOpts=`<option value="">— Flag reason —</option>`+
+        Object.entries(REASON_CODES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+
+    const colDefs=[
+        {key:'warehouse_name',       label:'Warehouse'},
+        {key:'shopify_order_number', label:'Order #',       fmt:v=>v?`#${v}`:'—'},
+        {key:'tracking_number',      label:'Tracking'},
+        {key:'carrier',              label:'Carrier'},
+        {key:'order_created_at',     label:'Order Created', fmt:fmtDt},
+        {key:'shipped_at',           label:'Shipped',       fmt:fmtDt},
+        ...(showAnn?[{key:'otsH',label:'Days',fmt:fmtHrs}]:[]),
+        {key:'withinSla', label:'SLA'},
+        ...(showAnn?[{key:'_ann',label:'Reason / Note / Excl.'}]:[]),
+        {key:'warehouse_status', label:'Status'},
+    ];
+
+    const thHtml=colDefs.map(c=>{
+        if(c.key==='_ann') return `<th style="min-width:390px">Reason / Note / Excl. from avg</th>`;
+        const act=sortCol===c.key?' sorted':'', ic=sortCol===c.key?(sortDir===-1?'↓':'↑'):'↕';
+        return `<th class="${act}" onclick="setSort('${c.key}')">${c.label}<span class="sort-icon">${ic}</span></th>`;
+    }).join('');
+    document.getElementById('modal-thead').innerHTML=`<tr>${thHtml}</tr>`;
+
+    const otsVals=rows.map(r=>r.otsH).filter(v=>v!==null).sort((a,b)=>a-b);
+    const p75=otsVals.length?otsVals[Math.floor(otsVals.length*.75)]:null;
+
+    const tbodyHtml=rows.map(r=>{
+        const excl=r.exclude_from_avg, isSel=selectedId===r.warehouse_shipment_id;
+        const slaBadge=r.withinSla===true?'<span class="badge-pass">✓ Pass</span>'
+                      :r.withinSla===false?'<span class="badge-fail">✗ Fail</span>'
+                      :'<span class="badge-na">—</span>';
+        const {label:stLbl,tone:stTone}=normStatus(r.warehouse_status);
+        const cells=colDefs.map(c=>{
+            if(c.key==='_ann'){
+                const sv=r.reason_code||'', nv=(r.note||'').replace(/"/g,'&quot;');
+                const chkd=r.exclude_from_avg?'checked':'', sn=sv?'':'display:none';
+                return `<td class="ann-cell" onclick="event.stopPropagation()">
+                    <select class="ann-select" onchange="onReasonChange('${r.warehouse_shipment_id}','${r.warehouse_slug}','${r.shopify_order_number}',this)">
+                        ${reasonOpts.replace(`value="${sv}"`,`value="${sv}" selected`)}
+                    </select>
+                    <input class="ann-note" id="note-${r.warehouse_shipment_id}" type="text"
+                        placeholder="Add note…" value="${nv}" style="${sn}"
+                        oninput="onNoteChange('${r.warehouse_shipment_id}','${r.warehouse_slug}','${r.shopify_order_number}',this)">
+                    <input class="ann-check" id="excl-${r.warehouse_shipment_id}" type="checkbox" ${chkd}
+                        title="Exclude from averages"
+                        onchange="onExcludeChange('${r.warehouse_shipment_id}','${r.warehouse_slug}','${r.shopify_order_number}',this)">
+                    <span style="font-size:11px;color:var(--muted);margin-left:2px">excl.</span>
+                </td>`;
+            }
+            if(c.key==='withinSla')      return `<td>${slaBadge}</td>`;
+            if(c.key==='warehouse_name') return `<td><span class="wh-dot-sm" style="background:${WH_COLOR[r.warehouse_name]||'#888'}"></span>${r.warehouse_name}</td>`;
+            if(c.key==='otsH')           return `<td class="${r.otsH>48?'ots-late':''}">${fmtHrs(r.otsH)}</td>`;
+            if(c.key==='warehouse_status') return `<td><span class="st-badge st-${stTone}">${stLbl}</span></td>`;
+            if(c.key==='carrier')        return `<td>${resolveCarrier(r)}</td>`;
+            const val=c.fmt?c.fmt(r[c.key]):(r[c.key]??'—');
+            return `<td>${val}</td>`;
+        }).join('');
+        return `<tr id="tr-${r.warehouse_shipment_id}"
+                    class="${excl?'excluded':''}${isSel?' selected':''}"
+                    onclick="openDrawer('${r.warehouse_shipment_id}','${r.warehouse_slug}')">
+                    ${cells}</tr>`;
+    }).join('');
+
+    document.getElementById('modal-tbody').innerHTML=tbodyHtml;
+    const excCount=rows.filter(r=>r.exclude_from_avg).length;
+    document.getElementById('modal-footer').textContent=
+        `${rows.length.toLocaleString()} rows`
+        +(rows.length!==G.filtered.length?` (filtered from ${G.filtered.length.toLocaleString()})`:'')
+        +(showAnn&&p75!==null?` · P75: ${fmtHrs(p75)}`:'')
+        +(excCount?` · ${excCount} excluded`:'')
+        +' · click row for detail';
+}
+function setSort(col) {
+    if(sortCol===col) sortDir*=-1; else { sortCol=col; sortDir=-1; }
+    renderTable();
+}
+
+// ── Shipment items (EU-ActiveAnts only) ───────────────────────────────────────
+async function fetchShipmentItems(wsi) {
+    const headers = { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}` };
+    const u = new URL(`${URL_BASE}/rest/v1/vw_activeants_shipment_items`);
+    u.searchParams.set('select', 'sku,quantity,lot_number,service_name');
+    u.searchParams.set('warehouse_shipment_id', `eq.${wsi}`);
+    u.searchParams.set('order', 'sku.asc');
+    const r = await fetch(u, { headers });
+    if (!r.ok) return [];
+    return r.json();
+}
+
+function renderItemsSection(items) {
+    if (!items.length) return '<div class="items-loading">No item data available</div>';
+    const hasLot = items.some(i => i.lot_number);
+    return `<table class="items-table">
+        <thead><tr>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+            ${hasLot ? '<th>Lot</th>' : ''}
+        </tr></thead>
+        <tbody>${items.map(i => `<tr>
+            <td style="font-weight:600;font-family:monospace">${i.sku || '—'}</td>
+            <td class="r">${i.quantity ?? '—'}</td>
+            ${hasLot ? `<td style="color:var(--muted)">${i.lot_number || '—'}</td>` : ''}
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+// ── Fulfilment Detail Drawer ──────────────────────────────────────────────────
+function openDrawer(wsi, ws) {
+    const r=G.enriched.find(s=>s.warehouse_shipment_id===wsi&&s.warehouse_slug===ws);
+    if(!r) return;
+    selectedId=wsi;
+    document.querySelectorAll('.dtable tr.selected').forEach(t=>t.classList.remove('selected'));
+    const tr=document.getElementById(`tr-${wsi}`);
+    if(tr) tr.classList.add('selected');
+
+    const {label:stLbl,tone:stTone}=normStatus(r.warehouse_status);
+    const carrier=resolveCarrier(r);
+    const trackHtml=r.tracking_number
+        ?`<a class="track-link" href="https://www.google.com/search?q=${encodeURIComponent(r.tracking_number+' '+carrier)}" target="_blank">${r.tracking_number} ↗</a>`
+        :'—';
+
+    const row=(lbl,val)=>`<div class="drow"><span class="dlabel">${lbl}</span><span class="dval">${val}</span></div>`;
+    const drawerBody = document.getElementById('drawer-body');
+    drawerBody.innerHTML=[
+        row('Warehouse',`<span class="wh-dot" style="background:${WH_COLOR[r.warehouse_name]||'#888'};margin-right:6px"></span>${r.warehouse_name}`),
+        row('Order #', r.shopify_order_number?`#${r.shopify_order_number}`:'—'),
+        row('WMS Shipment ID', r.warehouse_shipment_id||'—'),
+        row('Carrier', carrier),
+        row('Service', r.service_name||'—'),
+        row('Tracking', trackHtml),
+        row('Status', `<span class="st-badge st-${stTone}">${stLbl}</span><span class="raw-status">raw: ${r.warehouse_status||'—'}</span>`),
+        row('Order Created', fmtDt(r.order_created_at)),
+        row('Shipped At', fmtDt(r.shipped_at)),
+        row('Order-to-Ship', `<span class="${r.otsH>48?'ots-late':''}">${fmtHrs(r.otsH)}</span>`),
+        row('48hr SLA', r.withinSla===true?'<span class="badge-pass">✓ Pass</span>':r.withinSla===false?'<span class="badge-fail">✗ Fail</span>':'<span class="badge-na">—</span>'),
+        r.reason_code?row('Reason flagged', REASON_CODES[r.reason_code]?.label||r.reason_code):'',
+        r.note?row('Note', `<span style="white-space:normal">${r.note}</span>`):'',
+        r.exclude_from_avg?row('Excluded', '<span style="color:#f87171">Yes — not in averages</span>'):'',
+    ].join('');
+
+    // Items breakdown — EU-ActiveAnts only (Snowflake data via vw_activeants_shipment_items)
+    if (r.warehouse_name === 'EU-ActiveAnts') {
+        const itemsDiv = document.createElement('div');
+        itemsDiv.className = 'items-section';
+        itemsDiv.id = 'drawer-items';
+        itemsDiv.innerHTML = '<div class="items-title">Items in this shipment</div><div class="items-loading">Loading…</div>';
+        drawerBody.appendChild(itemsDiv);
+
+        fetchShipmentItems(wsi)
+            .then(items => {
+                const div = document.getElementById('drawer-items');
+                if (!div) return;
+                div.innerHTML = '<div class="items-title">Items in this shipment</div>' + renderItemsSection(items);
+            })
+            .catch(() => {
+                const div = document.getElementById('drawer-items');
+                if (div) div.innerHTML = '<div class="items-section"><div class="items-title">Items in this shipment</div><div class="items-loading">Could not load items</div></div>';
+            });
+    }
+
+    document.getElementById('detail-drawer').classList.add('open');
+}
+function closeDrawer() {
+    selectedId=null;
+    document.querySelectorAll('.dtable tr.selected').forEach(t=>t.classList.remove('selected'));
+    document.getElementById('detail-drawer').classList.remove('open');
+}
+
+// ── Sidebar nav highlight on scroll ──────────────────────────────────────────
+function initNavHighlight() {
+    const ids=['s-summary','s-volume','s-performance','s-carrier-perf','s-carrier-mix'];
+    const obs=new IntersectionObserver(entries=>{
+        entries.forEach(e=>{
+            if(e.isIntersecting){
+                document.querySelectorAll('.sb-nav a').forEach(a=>a.classList.remove('active'));
+                const link=document.querySelector(`.sb-nav a[href="#${e.target.id}"]`);
+                if(link) link.classList.add('active');
+            }
+        });
+    },{threshold:0.3});
+    ids.forEach(id=>{const el=document.getElementById(id);if(el)obs.observe(el);});
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+    buildWhChecks();
+    // Initialise date state to last 30 days and populate inputs
+    const initTo=new Date(); initTo.setHours(23,59,59,999);
+    const initFrom=new Date(Date.now()-30*864e5); initFrom.setHours(0,0,0,0);
+    G.dateFrom=initFrom; G.dateTo=initTo; G.dateField='shipped_at';
+    const fi=document.getElementById('date-from'), ti=document.getElementById('date-to');
+    if(fi) fi.value=toDateInput(initFrom);
+    if(ti) ti.value=toDateInput(initTo);
+    const d90=daysAgo(90);
+
+    const [ship90, orders, annotations]=await Promise.all([
+        fetchAll('vw_shipments',
+            'warehouse_name,warehouse_slug,warehouse_shipment_id,shopify_order_number,tracking_number,carrier,service_name,shipped_at,warehouse_status',
+            { shipped_at:`gte.${d90}` }),
+        fetchAll('vw_orders',
+            'warehouse_slug,shopify_order_number,order_created_at',
+            { order_created_at:`gte.${d90}` }),
+        fetchAll('shipment_annotations',
+            'warehouse_shipment_id,warehouse_slug,reason_code,note,exclude_from_avg',
+            {}),
+    ]);
+
+    const orderMap={};
+    for(const o of orders)
+        if(o.order_created_at&&o.shopify_order_number)
+            orderMap[`${o.warehouse_slug}:${o.shopify_order_number}`]=o.order_created_at;
+
+    const annMap={};
+    for(const a of annotations)
+        annMap[`${a.warehouse_slug}:${a.warehouse_shipment_id}`]=a;
+
+    G.enriched=ship90.map(s=>{
+        const oc=orderMap[`${s.warehouse_slug}:${s.shopify_order_number}`];
+        const ann=annMap[`${s.warehouse_slug}:${s.warehouse_shipment_id}`]||{};
+        let otsH=null, withinSla=null;
+        if(oc&&s.shipped_at){
+            const h=(new Date(s.shipped_at)-new Date(oc))/3.6e6;
+            if(h>=0){otsH=h;withinSla=h<=48;}
+        }
+        return{...s,order_created_at:oc||null,otsH,withinSla,
+               reason_code:ann.reason_code||null,note:ann.note||'',
+               exclude_from_avg:ann.exclude_from_avg||false};
+    });
+
+    applyFilters();
+
+    document.getElementById('loading').style.display='none';
+    document.getElementById('dash').style.display='block';
+    const now=new Date().toLocaleString('en-ZA',{timeZone:'Africa/Johannesburg',
+        day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('last-updated').innerHTML=`Updated<br><strong>${now} SAST</strong>`;
+    initNavHighlight();
+}
+
+init().catch(err=>{
+    document.getElementById('loading').style.display='none';
+    const el=document.getElementById('error-box');
+    el.style.display='block';
+    el.textContent=`Could not load data: ${err.message}`;
+});
+</script>
+</body>
+</html>
