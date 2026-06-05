@@ -259,11 +259,14 @@
 
     <div class="sb-section">Navigate</div>
     <nav class="sb-nav" id="sb-nav">
-        <a href="#s-summary"     class="active">Summary</a>
+        <a href="#s-summary"      class="active">Summary</a>
         <a href="#s-volume">Volume</a>
         <a href="#s-performance">Warehouse Performance</a>
+        <a href="#s-sla-trend">SLA Trend</a>
         <a href="#s-carrier-perf">Carrier Performance</a>
         <a href="#s-carrier-mix">Carrier Mix</a>
+        <a href="#s-sku">SKU Analysis</a>
+        <a href="#s-pending">Order Aging</a>
     </nav>
 
     <div class="sb-section">Date range</div>
@@ -313,6 +316,17 @@
     </div>
     <div class="drawer-body" id="drawer-body">
         <p style="color:var(--muted);font-size:13px">Click a row in the detail table to see the full fulfilment record.</p>
+    </div>
+</div>
+
+<!-- ── Order Detail Modal ── -->
+<div id="order-detail-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:2000;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeOrderDetail()">
+    <div style="background:#1a1d23;border:1px solid var(--border);border-radius:14px;width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.7)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid var(--border);flex-shrink:0">
+            <h3 id="order-detail-title" style="margin:0;font-size:16px;font-weight:600">Order Detail</h3>
+            <button class="modal-close" onclick="closeOrderDetail()" style="font-size:18px;line-height:1;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 8px">✕</button>
+        </div>
+        <div id="order-detail-body" style="padding:24px;overflow-y:auto;flex:1;min-height:0"></div>
     </div>
 </div>
 
@@ -405,6 +419,15 @@
                 </div>
             </div>
 
+            <div class="section-label" id="s-sla-trend">SLA Trend</div>
+            <div class="row col1">
+                <div class="card">
+                    <div class="card-title">48hr SLA Compliance — Week by Week</div>
+                    <div class="card-subtitle">% of orders despatched within 48hr of order creation · per warehouse · excludes annotated outliers</div>
+                    <div class="chart-wrap tall"><canvas id="ch-sla-trend"></canvas></div>
+                </div>
+            </div>
+
             <div class="section-label" id="s-carrier-perf">Carrier Performance</div>
             <div class="row col1">
                 <div class="card">
@@ -423,6 +446,40 @@
                 </div>
             </div>
 
+            <div class="section-label" id="s-sku">SKU Analysis</div>
+            <div class="row col2">
+                <div class="card">
+                    <div class="card-title">Top SKUs by Units Shipped</div>
+                    <div class="card-subtitle">Across all warehouses in selected date range · from item-level data</div>
+                    <div id="sku-table" style="overflow-x:auto;margin-top:8px"><div style="color:var(--muted);padding:20px;font-size:13px">Scroll to this section to load SKU data…</div></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Top 10 SKUs by Warehouse</div>
+                    <div class="card-subtitle">Unit volume breakdown — stacked by warehouse</div>
+                    <div class="chart-wrap tall"><canvas id="ch-sku-wh"></canvas></div>
+                </div>
+            </div>
+
+            <div class="section-label" id="s-pending">Order Aging</div>
+            <div class="row col1">
+                <div class="card">
+                    <div class="card-title">Pending &amp; Processing Orders</div>
+                    <div class="card-subtitle">All non-shipped orders across all warehouses · sorted oldest first</div>
+                    <div id="pending-summary" style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 8px"></div>
+                    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+                        <select id="pending-wh-filter" onchange="renderPending()"
+                            style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px">
+                            <option value="">All warehouses</option>
+                        </select>
+                        <select id="pending-status-filter" onchange="renderPending()"
+                            style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px">
+                            <option value="">All statuses</option>
+                        </select>
+                    </div>
+                    <div id="pending-table" style="overflow-x:auto"></div>
+                </div>
+            </div>
+
         </div>
     </main>
 </div>
@@ -432,8 +489,21 @@ const URL_BASE = 'https://prcbzlnwqmtvqqpxwmgg.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2J6bG53cW10dnFxcHh3bWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDIyNDAsImV4cCI6MjA4ODgxODI0MH0.ujt8r3ZjhZGMYKQNqJJ9a8JNpNXLyr2_wKgq98dxdVc';
 
 const WAREHOUSES    = ['CN-LHS','UK-Mintsoft','EU-ActiveAnts','US-Novex1','AU-Goodcang','CA-Propack'];
+
+// Virtual / bundle SKUs that should never appear in SKU analysis
+const EXCLUDED_SKUS = new Set([
+    'RANDOM-LOCK-C',
+]);
 const WH_COLOR      = { 'CN-LHS':'#f97316','UK-Mintsoft':'#38bdf8','EU-ActiveAnts':'#a78bfa',
                         'US-Novex1':'#34d399','AU-Goodcang':'#fbbf24','CA-Propack':'#f472b6' };
+const ITEMS_VIEWS = {
+    'EU-ActiveAnts': { view:'vw_activeants_shipment_items', select:'sku,quantity,lot_number' },
+    'UK-Mintsoft':   { view:'vw_mintsoft_shipment_items',   select:'sku,quantity' },
+    'CN-LHS':        { view:'vw_zenventory_shipment_items', select:'sku,quantity,product_name' },
+    'AU-Goodcang':   { view:'vw_goodcang_shipment_items',   select:'sku,quantity,product_name' },
+    'CA-Propack':    { view:'vw_propack_shipment_items',     select:'sku,quantity,product_name' },
+    'US-Novex1':     { view:'vw_novex_shipment_items',      select:'sku,quantity,product_name' },
+};
 const CARRIER_PAL   = ['#f97316','#38bdf8','#a78bfa','#34d399','#fbbf24','#f472b6',
                         '#e2e8f0','#06b6d4','#84cc16','#ec4899','#14b8a6'];
 
@@ -451,11 +521,36 @@ const REASON_CODES = {
 // uses 'success', ActiveAnts uses 'shipped', etc. All are mapped to a standard
 // set so the dashboard shows consistent labels.
 const _STATUS_MAP = {
-    '5':'Shipped','success':'Shipped','shipped':'Shipped','completed':'Shipped',
-    'despatched':'Shipped','dispatched':'Shipped','fulfilled':'Shipped',
+    // ── Shipped variants ──────────────────────────────────────────────────────
+    'shipped':'Shipped','success':'Shipped','completed':'Shipped','despatched':'Shipped',
+    'dispatched':'Shipped','fulfilled':'Shipped','closed':'Shipped',
+    'd':'Shipped',               // Goodcang despatched
+    '4':'Shipped',               // Mintsoft Despatched
+    '5':'Shipped',               // Mintsoft Completed
+    // ── Processing / picking (ActiveAnts) ─────────────────────────────────────
+    'announced':'Processing',
+    'ready_to_pick':'Processing',
+    'picking':'Processing',
+    'picked':'Processing',
+    'packing':'Processing',
+    'packed':'Processing',
+    'in_progress':'Processing',
+    'ready_to_ship':'Processing',
+    'awaiting_collection':'Processing',
+    'label_created':'Processing',
+    // ── General pending / processing ──────────────────────────────────────────
     'pending':'Pending','processing':'Processing','created':'Processing',
-    'awaiting_shipment':'Processing','on_hold':'Processing',
-    'cancelled':'Cancelled','failed':'Failed','error':'Error','failed_delivery':'Failed',
+    'received':'Received','new':'Pending',
+    'awaiting_shipment':'Processing','on_hold':'On Hold',
+    'h':'On Hold',               // Goodcang on hold
+    'p':'Pending',               // Goodcang pending
+    '1':'Received','2':'Processing','3':'Allocated',
+    '6':'Back Order','7':'Part Shipped',
+    'back order':'Back Order','backordered':'Back Order','back_order':'Back Order',
+    'part shipped':'Part Shipped','part_shipped':'Part Shipped',
+    // ── Cancelled / failed ───────────────────────────────────────────────────
+    'cancelled':'Cancelled','canceled':'Cancelled','c':'Cancelled',
+    'failed':'Failed','failure':'Failed','error':'Error','failed_delivery':'Failed',
 };
 const _STATUS_TONE = { Shipped:'green',Pending:'yellow',Processing:'yellow',
                        Cancelled:'red',Failed:'red',Error:'red' };
@@ -486,11 +581,14 @@ const SCALES  = { x:{ grid:{ color:'#2a2f4550' } }, y:{ grid:{ color:'#2a2f4550'
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let G = {
-    enriched: [], filtered: [],
+    enriched: [], filtered: [], deduped: [],
     dateFrom:  null,   // JS Date (start of day)
     dateTo:    null,   // JS Date (end of day)
     dateField: 'shipped_at',  // 'shipped_at' | 'order_created_at'
     whFilter: new Set(WAREHOUSES),
+    items: null,       // lazy-loaded SKU item data; null = needs fetch
+    pending: [],       // unshipped orders (shipped_at IS NULL), loaded once on init
+    rangeDays: 30,
 };
 let saveTimer = null, modalMode = null, sortCol = null, sortDir = -1, selectedId = null;
 
@@ -504,7 +602,7 @@ async function fetchAll(table, select, filters={}) {
         u.searchParams.set('limit',  PAGE);
         u.searchParams.set('offset', offset);
         for (const [k,v] of Object.entries(filters)) u.searchParams.set(k, v);
-        const r = await fetch(u, { headers });
+        const r = await fetch(u, { headers, cache: 'no-store' });
         if (!r.ok) throw new Error(`${table}: ${r.status} — ${await r.text()}`);
         const page = await r.json();
         rows = rows.concat(page);
@@ -682,6 +780,22 @@ function applyFilters() {
         const dt=new Date(raw);
         return dt>=from && dt<=to;
     });
+    // Deduplicate split shipments: per (warehouse, order) keep row with MAX shipped_at
+    const _dedupeMap = {}, _noOrder = [];
+    for (const r of G.filtered) {
+        if (!r.shopify_order_number) { _noOrder.push(r); continue; }
+        const k = `${r.warehouse_slug}:${r.shopify_order_number}`;
+        const prev = _dedupeMap[k];
+        if (!prev || (r.shipped_at && (!prev.shipped_at || r.shipped_at > prev.shipped_at)))
+            _dedupeMap[k] = r;
+    }
+    G.deduped = [...Object.values(_dedupeMap), ..._noOrder];
+    G.items = null; // invalidate SKU cache on any filter change
+    // Reset Order Aging dropdowns so they repopulate from fresh data
+    ['pending-wh-filter','pending-status-filter'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel) { while (sel.options.length > 1) sel.remove(1); sel.value = ''; }
+    });
     renderKPIs();
     renderAllCharts();
     const w=G.whFilter.size;
@@ -839,6 +953,541 @@ function renderAllCharts() {
     })), { plugins:{ legend:{ display:true, position:'right',
                labels:{ boxWidth:10, padding:12, color:'#7c87a0' } } },
            scales:{ x:{ ...SCALES.x, stacked:true }, y:{ ...SCALES.y, stacked:true } } });
+
+    // SLA Trend (weekly, from G.deduped)
+    renderSLATrend();
+
+    // Order Aging (from G.filtered)
+    renderPending();
+
+    // SKU Analysis — invalidate cache then lazy-load when visible
+    G.items = null;
+    const skuSection = document.getElementById('s-sku');
+    if (skuSection && isInViewport(skuSection)) loadAndRenderSKU();
+}
+
+function isInViewport(el) {
+    const r = el.getBoundingClientRect();
+    return r.top < window.innerHeight + 400;
+}
+
+// ── SLA Trend ─────────────────────────────────────────────────────────────────
+function renderSLATrend() {
+    const weekData = {};
+    for (const r of G.deduped) {
+        if (r.withinSla === null || r.exclude_from_avg || !r.shipped_at) continue;
+        const d = new Date(r.shipped_at);
+        const diff = d.getDay() === 0 ? 6 : d.getDay() - 1;
+        const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diff);
+        const wk = isoLocal(mon);
+        if (!weekData[wk]) weekData[wk] = {};
+        const wh = r.warehouse_name;
+        if (!weekData[wk][wh]) weekData[wk][wh] = { pass:0, total:0 };
+        weekData[wk][wh].total++;
+        if (r.withinSla) weekData[wk][wh].pass++;
+    }
+    const weeks = Object.keys(weekData).sort();
+    const whList = WAREHOUSES.filter(w => G.deduped.some(r => r.warehouse_name===w && r.withinSla!==null && !r.exclude_from_avg));
+    if (!weeks.length || !whList.length) {
+        destroyChart('ch-sla-trend');
+        document.getElementById('ch-sla-trend').closest('.chart-wrap').innerHTML =
+            '<p style="color:var(--muted);padding:24px;font-size:13px">No SLA data in selected range</p>';
+        return;
+    }
+    line('ch-sla-trend', weeks.map(w => 'w/c ' + w.slice(5)), whList.map(w => ({
+        label: w,
+        data:  weeks.map(wk => { const d=weekData[wk]?.[w]; return d ? Math.round(d.pass/d.total*100) : null; }),
+        borderColor: WH_COLOR[w], backgroundColor: WH_COLOR[w]+'18',
+        fill:false, tension:0.3, pointRadius:3, borderWidth:2, spanGaps:false,
+    })), {
+        scales: { ...SCALES, y: { ...SCALES.y, min:0, max:100,
+            ticks: { callback: v=>v+'%', color:'#7c87a0' },
+            title: { display:true, text:'% within 48hr SLA', color:'#7c87a0', font:{size:11} }
+        }},
+        plugins: { tooltip: { callbacks: { label: ctx=>`${ctx.dataset.label}: ${ctx.parsed.y}%` } } }
+    });
+}
+
+// ── Order Aging sort state ────────────────────────────────────────────────────
+let _pendingSort = { col: 'days', dir: 'desc' };
+
+function _pendingSortFn(col, dir) {
+    const mul = dir === 'asc' ? 1 : -1;
+    return (a, b) => {
+        const now = new Date();
+        const daysOf = r => r.order_created_at ? Math.floor((now - new Date(r.order_created_at)) / 864e5) : -1;
+        switch (col) {
+            case 'order':   return mul * ((a.shopify_order_number||'') > (b.shopify_order_number||'') ? 1 : -1);
+            case 'wh':      return mul * ((a.warehouse_name||'') > (b.warehouse_name||'') ? 1 : -1);
+            case 'status':  return mul * ((normStatus(a.warehouse_status).label) > (normStatus(b.warehouse_status).label) ? 1 : -1);
+            case 'days':    return mul * (daysOf(a) - daysOf(b));
+            case 'created': return mul * (new Date(a.order_created_at||0) - new Date(b.order_created_at||0));
+            default:        return 0;
+        }
+    };
+}
+
+function _pendingThClick(col) {
+    if (_pendingSort.col === col) _pendingSort.dir = _pendingSort.dir === 'asc' ? 'desc' : 'asc';
+    else { _pendingSort.col = col; _pendingSort.dir = col === 'days' ? 'desc' : 'asc'; }
+    renderPending();
+}
+
+function _thSort(col, label) {
+    const active = _pendingSort.col === col;
+    const arrow  = active ? (_pendingSort.dir === 'asc' ? ' ↑' : ' ↓') : '';
+    const style  = `cursor:pointer;user-select:none${active ? ';color:var(--accent)' : ''}`;
+    return `<th onclick="_pendingThClick('${col}')" style="${style}">${label}${arrow}</th>`;
+}
+
+// ── Country code → full name lookup ──────────────────────────────────────────
+const COUNTRY_NAMES = {
+    AF:'Afghanistan',AX:'Åland Islands',AL:'Albania',DZ:'Algeria',AS:'American Samoa',AD:'Andorra',AO:'Angola',
+    AI:'Anguilla',AQ:'Antarctica',AG:'Antigua and Barbuda',AR:'Argentina',AM:'Armenia',AW:'Aruba',AU:'Australia',
+    AT:'Austria',AZ:'Azerbaijan',BS:'Bahamas',BH:'Bahrain',BD:'Bangladesh',BB:'Barbados',BY:'Belarus',BE:'Belgium',
+    BZ:'Belize',BJ:'Benin',BM:'Bermuda',BT:'Bhutan',BO:'Bolivia',BQ:'Bonaire',BA:'Bosnia and Herzegovina',
+    BW:'Botswana',BV:'Bouvet Island',BR:'Brazil',IO:'British Indian Ocean Territory',BN:'Brunei',BG:'Bulgaria',
+    BF:'Burkina Faso',BI:'Burundi',CV:'Cabo Verde',KH:'Cambodia',CM:'Cameroon',CA:'Canada',KY:'Cayman Islands',
+    CF:'Central African Republic',TD:'Chad',CL:'Chile',CN:'China',CX:'Christmas Island',CC:'Cocos Islands',
+    CO:'Colombia',KM:'Comoros',CG:'Congo',CD:'Congo (DRC)',CK:'Cook Islands',CR:'Costa Rica',CI:"Côte d'Ivoire",
+    HR:'Croatia',CU:'Cuba',CW:'Curaçao',CY:'Cyprus',CZ:'Czechia',DK:'Denmark',DJ:'Djibouti',DM:'Dominica',
+    DO:'Dominican Republic',EC:'Ecuador',EG:'Egypt',SV:'El Salvador',GQ:'Equatorial Guinea',ER:'Eritrea',
+    EE:'Estonia',SZ:'Eswatini',ET:'Ethiopia',FK:'Falkland Islands',FO:'Faroe Islands',FJ:'Fiji',FI:'Finland',
+    FR:'France',GF:'French Guiana',PF:'French Polynesia',TF:'French Southern Territories',GA:'Gabon',GM:'Gambia',
+    GE:'Georgia',DE:'Germany',GH:'Ghana',GI:'Gibraltar',GR:'Greece',GL:'Greenland',GD:'Grenada',GP:'Guadeloupe',
+    GU:'Guam',GT:'Guatemala',GG:'Guernsey',GN:'Guinea',GW:'Guinea-Bissau',GY:'Guyana',HT:'Haiti',
+    HM:'Heard Island',VA:'Holy See',HN:'Honduras',HK:'Hong Kong',HU:'Hungary',IS:'Iceland',IN:'India',
+    ID:'Indonesia',IR:'Iran',IQ:'Iraq',IE:'Ireland',IM:'Isle of Man',IL:'Israel',IT:'Italy',JM:'Jamaica',
+    JP:'Japan',JE:'Jersey',JO:'Jordan',KZ:'Kazakhstan',KE:'Kenya',KI:'Kiribati',KP:'North Korea',KR:'South Korea',
+    KW:'Kuwait',KG:'Kyrgyzstan',LA:'Laos',LV:'Latvia',LB:'Lebanon',LS:'Lesotho',LR:'Liberia',LY:'Libya',
+    LI:'Liechtenstein',LT:'Lithuania',LU:'Luxembourg',MO:'Macao',MG:'Madagascar',MW:'Malawi',MY:'Malaysia',
+    MV:'Maldives',ML:'Mali',MT:'Malta',MH:'Marshall Islands',MQ:'Martinique',MR:'Mauritania',MU:'Mauritius',
+    YT:'Mayotte',MX:'Mexico',FM:'Micronesia',MD:'Moldova',MC:'Monaco',MN:'Mongolia',ME:'Montenegro',MS:'Montserrat',
+    MA:'Morocco',MZ:'Mozambique',MM:'Myanmar',NA:'Namibia',NR:'Nauru',NP:'Nepal',NL:'Netherlands',NC:'New Caledonia',
+    NZ:'New Zealand',NI:'Nicaragua',NE:'Niger',NG:'Nigeria',NU:'Niue',NF:'Norfolk Island',MK:'North Macedonia',
+    MP:'Northern Mariana Islands',NO:'Norway',OM:'Oman',PK:'Pakistan',PW:'Palau',PS:'Palestine',PA:'Panama',
+    PG:'Papua New Guinea',PY:'Paraguay',PE:'Peru',PH:'Philippines',PN:'Pitcairn',PL:'Poland',PT:'Portugal',
+    PR:'Puerto Rico',QA:'Qatar',RE:'Réunion',RO:'Romania',RU:'Russia',RW:'Rwanda',BL:'Saint Barthélemy',
+    SH:'Saint Helena',KN:'Saint Kitts and Nevis',LC:'Saint Lucia',MF:'Saint Martin',PM:'Saint Pierre and Miquelon',
+    VC:'Saint Vincent and the Grenadines',WS:'Samoa',SM:'San Marino',ST:'São Tomé and Príncipe',SA:'Saudi Arabia',
+    SN:'Senegal',RS:'Serbia',SC:'Seychelles',SL:'Sierra Leone',SG:'Singapore',SX:'Sint Maarten',SK:'Slovakia',
+    SI:'Slovenia',SB:'Solomon Islands',SO:'Somalia',ZA:'South Africa',GS:'South Georgia',SS:'South Sudan',
+    ES:'Spain',LK:'Sri Lanka',SD:'Sudan',SR:'Suriname',SJ:'Svalbard and Jan Mayen',SE:'Sweden',CH:'Switzerland',
+    SY:'Syria',TW:'Taiwan',TJ:'Tajikistan',TZ:'Tanzania',TH:'Thailand',TL:'Timor-Leste',TG:'Togo',TK:'Tokelau',
+    TO:'Tonga',TT:'Trinidad and Tobago',TN:'Tunisia',TR:'Turkey',TM:'Turkmenistan',TC:'Turks and Caicos Islands',
+    TV:'Tuvalu',UG:'Uganda',UA:'Ukraine',AE:'United Arab Emirates',GB:'United Kingdom',UM:'US Minor Outlying Islands',
+    US:'United States',UY:'Uruguay',UZ:'Uzbekistan',VU:'Vanuatu',VE:'Venezuela',VN:'Vietnam',VG:'British Virgin Islands',
+    VI:'US Virgin Islands',WF:'Wallis and Futuna',EH:'Western Sahara',YE:'Yemen',ZM:'Zambia',ZW:'Zimbabwe',
+};
+function countryName(code) {
+    if (!code) return null;
+    const upper = code.toUpperCase();
+    return COUNTRY_NAMES[upper] || code;
+}
+
+// ── Order detail modal ────────────────────────────────────────────────────────
+async function openOrderDetail(shopifyNum, warehouseName) {
+    const modal = document.getElementById('order-detail-modal');
+    const title = document.getElementById('order-detail-title');
+    const body  = document.getElementById('order-detail-body');
+    title.textContent = `#${shopifyNum} · ${warehouseName}`;
+    modal.style.display = 'flex';
+    body.innerHTML = `<div style="color:var(--muted);padding:32px;text-align:center;font-size:13px">Loading…</div>`;
+
+    try {
+        const headers = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+        let items = [];
+        let isAA  = warehouseName === 'EU-ActiveAnts';
+        // GoodCang pending: normalize # prefix before comparing (GoodCang stores reference_no as '#XXXXXXX')
+        const gcRecord = warehouseName === 'AU-Goodcang'
+            ? G.pending.find(r => r.warehouse_name === 'AU-Goodcang' &&
+                  r.shopify_order_number && r.shopify_order_number.replace(/^#+/, '') === shopifyNum)
+            : null;
+        const isGCPending = !!gcRecord;
+
+        // Zenventory / CN-LHS pending: same # normalization
+        const zenRecord = warehouseName === 'CN-LHS'
+            ? G.pending.find(r => r.warehouse_name === 'CN-LHS' &&
+                  r.shopify_order_number && r.shopify_order_number.replace(/^#+/, '') === shopifyNum)
+            : null;
+        const isZenPending = !!zenRecord;
+
+        // Mintsoft pending: same # normalization
+        const mintRecord = warehouseName === 'UK-Mintsoft'
+            ? G.pending.find(r => r.warehouse_name === 'UK-Mintsoft' &&
+                  r.shopify_order_number && r.shopify_order_number.replace(/^#+/, '') === shopifyNum)
+            : null;
+        const isMintPending = !!mintRecord;
+
+        // Step 1: fetch order items
+        if (isAA) {
+            const url = new URL(`${URL_BASE}/rest/v1/vw_activeants_pending_order_items`);
+            url.searchParams.set('select', 'sku,product_name,quantity,order_created_at,country_code,order_type_name,is_back_order,on_hold');
+            url.searchParams.set('shopify_order_number', `eq.${shopifyNum}`);
+            const resp = await fetch(url, { headers });
+            if (!resp.ok) {
+                body.innerHTML = `<p style="color:var(--muted);font-size:13px;line-height:1.6">
+                    Item detail view not yet available — re-run the ActiveAnts sync on the sprint12 branch to create it.</p>`;
+                return;
+            }
+            items = await resp.json();
+        } else if (isGCPending) {
+            const url = new URL(`${URL_BASE}/rest/v1/vw_goodcang_pending_order_items`);
+            url.searchParams.set('select', 'sku,product_name,quantity,order_created_at,destination_country,destination_province');
+            // Use gcRecord.shopify_order_number (preserves original '#' prefix stored in GoodCang)
+            url.searchParams.set('shopify_order_number', `eq.${gcRecord.shopify_order_number}`);
+            const resp = await fetch(url, { headers });
+            if (resp.ok) items = await resp.json();
+        } else if (isZenPending) {
+            const url = new URL(`${URL_BASE}/rest/v1/vw_zenventory_pending_order_items`);
+            url.searchParams.set('select', 'sku,product_name,quantity,order_created_at,destination_country,destination_province');
+            url.searchParams.set('shopify_order_number', `eq.${zenRecord.shopify_order_number}`);
+            const resp = await fetch(url, { headers });
+            if (resp.ok) items = await resp.json();
+        } else if (isMintPending) {
+            const url = new URL(`${URL_BASE}/rest/v1/vw_mintsoft_pending_order_items`);
+            url.searchParams.set('select', 'sku,product_name,quantity,order_created_at,destination_country');
+            url.searchParams.set('shopify_order_number', `eq.${mintRecord.shopify_order_number}`);
+            const resp = await fetch(url, { headers });
+            if (resp.ok) items = await resp.json();
+        } else {
+            const record = [...G.enriched, ...G.pending].find(r =>
+                r.warehouse_name === warehouseName && r.shopify_order_number === shopifyNum
+            );
+            const wsi      = record?.warehouse_shipment_id;
+            const viewInfo = ITEMS_VIEWS[warehouseName];
+            if (wsi && viewInfo) {
+                const url = new URL(`${URL_BASE}/rest/v1/${viewInfo.view}`);
+                url.searchParams.set('select', viewInfo.select);
+                url.searchParams.set('warehouse_shipment_id', `eq.${wsi}`);
+                const resp = await fetch(url, { headers });
+                if (resp.ok) items = await resp.json();
+            }
+        }
+
+        if (!items.length) {
+            body.innerHTML = `<p style="color:var(--muted);font-size:13px;line-height:1.6">
+                No item data found for <strong>#${shopifyNum}</strong>.<br>
+                ${isAA         ? 'This order may pre-date the combined sync lookback window (~90 days). Still tracked for aging.' :
+                  isGCPending  ? 'No line items recorded for this GoodCang order. The order may have been created without item details in the sync.' :
+                  isZenPending ? 'No line items recorded for this CN-LHS order. The item sync may not have run yet.' :
+                  isMintPending? 'No line items recorded for this Mintsoft order. The order may pre-date the item sync.' :
+                                 'Items are only stored once a shipment record exists in the system.'}
+            </p>`;
+            return;
+        }
+
+        // Step 2: fetch SOH for the SKUs in this order from current_inventory
+        const skus    = [...new Set(items.map(i => i.sku).filter(Boolean))];
+        const stockMap = {};
+        try {
+            const surl = new URL(`${URL_BASE}/rest/v1/current_inventory`);
+            surl.searchParams.set('select', 'warehouse,sku,available_quantity,snapshot_time');
+            surl.searchParams.set('sku', `in.(${skus.join(',')})`);
+            surl.searchParams.set('warehouse', `eq.${warehouseName}`);
+            const sresp = await fetch(surl, { headers, cache: 'no-store' });
+            if (sresp.ok) {
+                const srows = await sresp.json();
+                srows.forEach(r => {
+                    stockMap[r.sku] = { ...r, available: r.available_quantity };
+                });
+            }
+        } catch(_) { /* SOH optional — don't break if view doesn't exist yet */ }
+
+        const hasSoh     = Object.keys(stockMap).length > 0;
+        const hasProduct = items[0].product_name !== undefined;
+        const first      = items[0];
+        const stockAsOf  = hasSoh ? Object.values(stockMap)[0]?.snapshot_time : null;
+
+        // Build warehouse-specific header meta
+        let metaHtml = '';
+        if (isAA) {
+            const created   = first.order_created_at ? new Date(first.order_created_at) : null;
+            const backOrder = first.is_back_order ? '<span class="badge red">Back Order</span>' : '';
+            const onHold    = first.on_hold > 0   ? '<span class="badge yellow">On Hold</span>'  : '';
+            const country   = countryName(first.country_code);
+            metaHtml = `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+                    <div style="font-size:13px;color:var(--muted);line-height:1.7">
+                        <span>Warehouse Dispatch: <strong style="color:var(--text)">EU-ActiveAnts</strong></span>
+                        ${country?`<br><span>Destination: <strong style="color:var(--text)">${country}</strong></span>`:''}
+                        ${created?`<br><span style="font-size:12px">Created ${created.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})}</span>`:''}
+                    </div>
+                    <div style="display:flex;gap:6px">${backOrder||onHold||'<span class="badge yellow">Processing</span>'}</div>
+                </div>`;
+        } else if (isGCPending) {
+            const created   = first.order_created_at ? new Date(first.order_created_at) : null;
+            const country   = countryName(first.destination_country);
+            const province  = first.destination_province || null;
+            const destLabel = [province, country].filter(Boolean).join(', ') || null;
+            metaHtml = `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+                    <div style="font-size:13px;color:var(--muted);line-height:1.7">
+                        <span>Warehouse Dispatch: <strong style="color:var(--text)">AU-Goodcang</strong></span>
+                        ${destLabel?`<br><span>Destination: <strong style="color:var(--text)">${destLabel}</strong></span>`:''}
+                        ${created?`<br><span style="font-size:12px">Created ${created.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})}</span>`:''}
+                    </div>
+                    <div style="display:flex;gap:6px"><span class="badge yellow">Pending</span></div>
+                </div>`;
+        } else if (isZenPending) {
+            const created  = first.order_created_at ? new Date(first.order_created_at) : null;
+            const country  = countryName(first.destination_country);
+            const province = first.destination_province || null;
+            const destLabel = [province, country].filter(Boolean).join(', ') || null;
+            const onHold   = first.warehouse_status === 'On Hold' ? '<span class="badge yellow">On Hold</span>' : '';
+            metaHtml = `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+                    <div style="font-size:13px;color:var(--muted);line-height:1.7">
+                        <span>Warehouse Dispatch: <strong style="color:var(--text)">CN-LHS</strong></span>
+                        ${destLabel?`<br><span>Destination: <strong style="color:var(--text)">${destLabel}</strong></span>`:''}
+                        ${created?`<br><span style="font-size:12px">Created ${created.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})}</span>`:''}
+                    </div>
+                    <div style="display:flex;gap:6px">${onHold||'<span class="badge yellow">Pending</span>'}</div>
+                </div>`;
+        } else if (isMintPending) {
+            const created  = first.order_created_at ? new Date(first.order_created_at) : null;
+            const country  = countryName(first.destination_country);
+            metaHtml = `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+                    <div style="font-size:13px;color:var(--muted);line-height:1.7">
+                        <span>Warehouse Dispatch: <strong style="color:var(--text)">UK-Mintsoft</strong></span>
+                        ${country?`<br><span>Destination: <strong style="color:var(--text)">${country}</strong></span>`:''}
+                        ${created?`<br><span style="font-size:12px">Created ${created.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})}</span>`:''}
+                    </div>
+                    <div style="display:flex;gap:6px"><span class="badge red">Back Order</span></div>
+                </div>`;
+        }
+        // Note: for shipped orders (non-pending), no metaHtml is set — warehouse info
+        // is visible from the modal title and the table itself.
+
+        // Stock freshness warning (> 4 hours old)
+        const stockAgeHtml = (() => {
+            if (!hasSoh || !stockAsOf) return '';
+            const ageH = (Date.now() - new Date(stockAsOf)) / 3.6e6;
+            const timeStr = new Date(stockAsOf).toLocaleString('en-ZA',{timeZone:'Africa/Johannesburg',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+            if (ageH > 4) return `<div style="font-size:11px;color:var(--yellow,#f59e0b);margin-top:10px">⚠ Stock data is ${Math.round(ageH)}h old (as of ${timeStr} SAST) — sync may be delayed</div>`;
+            return `<div style="font-size:11px;color:var(--muted);margin-top:10px">Stock as of ${timeStr} SAST</div>`;
+        })();
+
+        body.innerHTML = `${metaHtml}
+            <table class="perf-table">
+                <thead><tr>
+                    <th>SKU</th>
+                    ${hasProduct ? '<th>Product</th>' : ''}
+                    <th class="r">Qty ordered</th>
+                    ${hasSoh ? '<th class="r" title="Units available to allocate to new orders">Available</th>' : ''}
+                </tr></thead>
+                <tbody>
+                ${items.map(i => {
+                    const s       = stockMap[i.sku];
+                    const avail   = s?.available ?? null;
+                    const sohTone = avail === null ? 'muted' : avail <= 0 ? 'red' : avail < (i.quantity||1) ? 'yellow' : 'green';
+                    return `<tr>
+                        <td style="font-family:monospace;font-size:12px;letter-spacing:.5px">${i.sku||'—'}</td>
+                        ${hasProduct ? `<td style="font-size:12px">${i.product_name||'—'}</td>` : ''}
+                        <td class="r" style="font-size:13px">${i.quantity??'—'}</td>
+                        ${hasSoh ? `<td class="r"><span class="badge ${sohTone}" style="min-width:36px;text-align:center">${avail??'—'}</span></td>` : ''}
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table>
+            ${stockAgeHtml}
+            ${!hasSoh ? `<div style="font-size:11px;color:var(--muted);margin-top:10px">Run <code>create_public_current_inventory_view.sql</code> in Supabase SQL Editor to enable stock-on-hand.</div>` : ''}`;
+    } catch(e) {
+        body.innerHTML = `<p style="color:var(--muted);font-size:13px">Failed to load: ${e.message}</p>`;
+    }
+}
+
+function closeOrderDetail() {
+    document.getElementById('order-detail-modal').style.display = 'none';
+}
+
+// ── Order Aging ───────────────────────────────────────────────────────────────
+function renderPending() {
+    const now = new Date();
+    const whFilter  = document.getElementById('pending-wh-filter')?.value  || '';
+    const stFilter  = document.getElementById('pending-status-filter')?.value || '';
+
+    // Pending table uses G.pending directly (all sources already filtered to unshipped/back-order only).
+    // Do NOT merge with G.enriched here — shipped orders in G.enriched can share warehouse_shipment_id
+    // with back-order IDs (e.g. Mintsoft order_id), causing false deduplication that drops pending rows.
+    const _seen = new Set();
+    const baseData = G.pending.filter(r => {
+        if (!G.whFilter.has(r.warehouse_name)) return false;
+        const key = `${r.warehouse_slug}:${r.warehouse_shipment_id}`;
+        if (_seen.has(key)) return false;
+        _seen.add(key);
+        return true;
+    });
+
+    // All non-shipped, non-cancelled, non-failed orders
+    const allPending = baseData.filter(r => {
+        const s = normStatus(r.warehouse_status);
+        return s.label !== 'Shipped' && s.label !== 'Cancelled' && s.label !== 'Failed';
+    });
+
+    // Populate warehouse filter options
+    const whSel = document.getElementById('pending-wh-filter');
+    if (whSel && whSel.options.length <= 1) {
+        const whs = [...new Set(allPending.map(r=>r.warehouse_name))].sort();
+        whs.forEach(w => { const o=document.createElement('option'); o.value=w; o.text=w; whSel.add(o); });
+    }
+
+    // Populate status filter options
+    const stSel = document.getElementById('pending-status-filter');
+    if (stSel && stSel.options.length <= 1) {
+        const sts = [...new Set(allPending.map(r=>normStatus(r.warehouse_status).label))].sort();
+        sts.forEach(s => { const o=document.createElement('option'); o.value=s; o.text=s; stSel.add(o); });
+    }
+
+    // Summary chips by warehouse
+    const summaryEl = document.getElementById('pending-summary');
+    if (summaryEl) {
+        const byWh = {};
+        allPending.forEach(r => { byWh[r.warehouse_name] = (byWh[r.warehouse_name]||0)+1; });
+        summaryEl.innerHTML = `
+            <span style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;color:var(--text)">
+                <strong>${allPending.length}</strong> total pending
+            </span>
+            ${Object.entries(byWh).sort((a,b)=>b[1]-a[1]).map(([wh,n])=>`
+            <span style="background:${WH_COLOR[wh]||'#888'}22;border:1px solid ${WH_COLOR[wh]||'#888'}55;border-radius:20px;padding:4px 12px;font-size:12px;color:${WH_COLOR[wh]||'#888'}">
+                ${wh}: <strong>${n}</strong>
+            </span>`).join('')}`;
+    }
+
+    // Apply dropdown filters then sort
+    const filtered = allPending
+        .filter(r => !whFilter || r.warehouse_name === whFilter)
+        .filter(r => !stFilter || normStatus(r.warehouse_status).label === stFilter)
+        .sort(_pendingSortFn(_pendingSort.col, _pendingSort.dir));
+
+    const el = document.getElementById('pending-table');
+    if (!filtered.length) {
+        el.innerHTML = '<p style="color:var(--muted);padding:24px;font-size:13px">No pending orders match the current filters 🎉</p>';
+        return;
+    }
+
+    const PAGE = 200;
+    const rows = filtered.slice(0, PAGE);
+    el.innerHTML = `<table class="perf-table">
+        <thead><tr>
+            ${_thSort('order','Order')}
+            ${_thSort('wh','Warehouse')}
+            ${_thSort('status','Status')}
+            ${_thSort('days','Days waiting')}
+            ${_thSort('created','Order created')}
+        </tr></thead><tbody>
+        ${rows.map(r => {
+            const created  = r.order_created_at ? new Date(r.order_created_at) : null;
+            const days     = created ? Math.floor((now - created) / 864e5) : null;
+            const ageTone  = days === null ? 'blue' : days > 5 ? 'red' : days > 2 ? 'yellow' : 'green';
+            const s        = normStatus(r.warehouse_status);
+            const orderNum = r.shopify_order_number ? '#'+r.shopify_order_number.replace(/^#+/,'') : '—';
+            const canDetail = r.shopify_order_number ? `onclick="openOrderDetail('${r.shopify_order_number.replace(/^#+/,'')}','${r.warehouse_name}')"` : '';
+            // warehouse_shipment_id stored on G record for non-AA lookup (used inside openOrderDetail)
+            return `<tr style="cursor:${r.shopify_order_number?'pointer':'default'}" ${canDetail}>
+                <td style="font-weight:500">${orderNum}</td>
+                <td>${r.warehouse_name}</td>
+                <td><span class="badge ${s.tone}">${s.label}</span></td>
+                <td class="r"><span class="badge ${ageTone}">${days !== null ? days+'d' : '—'}</span></td>
+                <td>${created ? created.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'}) : '—'}</td>
+            </tr>`;
+        }).join('')}
+        </tbody></table>
+    ${filtered.length > PAGE ? `<p style="color:var(--muted);padding:8px 4px;font-size:12px">Showing ${PAGE} of ${filtered.length} orders — use filters to narrow down</p>` : ''}`;
+}
+
+// ── SKU Analysis ──────────────────────────────────────────────────────────────
+async function loadAndRenderSKU() {
+    if (G.items !== null) { renderSKUTable(); renderSKUChart(); return; }
+    document.getElementById('sku-table').innerHTML =
+        '<div style="color:var(--muted);padding:20px;font-size:13px">Loading SKU data…</div>';
+    try {
+        const headers = { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}` };
+        const dateFrom = G.dateFrom.toISOString().slice(0,10);
+        const dateTo   = new Date(G.dateTo.getTime() + 864e5).toISOString().slice(0,10);
+        const results  = await Promise.all(Object.entries(ITEMS_VIEWS).map(async ([wh, cfg]) => {
+            const cols = cfg.select + ',shipped_at,shopify_order_number';
+            const u = new URL(`${URL_BASE}/rest/v1/${cfg.view}`);
+            u.searchParams.set('select',     cols);
+            u.searchParams.set('shipped_at', `gte.${dateFrom}`);
+            u.searchParams.set('limit',      '10000');
+            const r = await fetch(u, { headers });
+            if (!r.ok) return [];
+            return (await r.json()).map(row => ({ ...row, _wh: wh }));
+        }));
+        G.items = results.flat();
+    } catch(e) {
+        document.getElementById('sku-table').innerHTML =
+            `<div style="color:var(--muted);padding:20px;font-size:13px">Could not load SKU data: ${e.message}</div>`;
+        return;
+    }
+    renderSKUTable();
+    renderSKUChart();
+}
+
+function renderSKUTable() {
+    // Build a SKU→name lookup from warehouses that carry product_name
+    const skuNameMap = {};
+    for (const item of G.items)
+        if (item.sku && item.product_name) skuNameMap[item.sku] = item.product_name;
+
+    const skuMap = {};
+    for (const item of G.items) {
+        const sku  = item.sku || '—';
+        if (EXCLUDED_SKUS.has(sku)) continue;
+        const name = item.product_name || skuNameMap[item.sku] || '';
+        const qty  = parseInt(item.quantity || item.quantity_shipped || 0) || 0;
+        if (!skuMap[sku]) skuMap[sku] = { sku, name, qty:0, whs:new Set(), orders:new Set() };
+        skuMap[sku].qty += qty;
+        skuMap[sku].whs.add(item._wh);
+        if (item.shopify_order_number) skuMap[sku].orders.add(item.shopify_order_number);
+    }
+    const rows = Object.values(skuMap).sort((a,b)=>b.qty-a.qty).slice(0,50);
+    const el   = document.getElementById('sku-table');
+    if (!rows.length) {
+        el.innerHTML = '<p style="color:var(--muted);padding:20px;font-size:13px">No item data for this date range</p>';
+        return;
+    }
+    el.innerHTML = `<table class="perf-table">
+        <thead><tr>
+            <th>SKU</th><th>Product</th>
+            <th class="r">Units</th><th class="r">Orders</th><th>Warehouses</th>
+        </tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+            <td><code style="font-size:11px;color:var(--accent)">${r.sku}</code></td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:12px">${r.name||'—'}</td>
+            <td class="r">${r.qty.toLocaleString()}</td>
+            <td class="r">${r.orders.size}</td>
+            <td style="font-size:11px;color:var(--muted)">${[...r.whs].join(', ')}</td>
+        </tr>`).join('')}
+        </tbody></table>`;
+}
+
+function renderSKUChart() {
+    const skuMap = {};
+    for (const item of G.items) {
+        const sku = item.sku || '—';
+        if (EXCLUDED_SKUS.has(sku)) continue;
+        const qty = parseInt(item.quantity || item.quantity_shipped || 0) || 0;
+        if (!skuMap[sku]) skuMap[sku] = { total:0, byWh:{} };
+        skuMap[sku].total += qty;
+        skuMap[sku].byWh[item._wh] = (skuMap[sku].byWh[item._wh]||0) + qty;
+    }
+    const top10    = Object.entries(skuMap).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
+    const labels   = top10.map(([sku]) => sku.length>22 ? sku.slice(0,22)+'…' : sku);
+    const whList   = WAREHOUSES.filter(w => G.items.some(i=>i._wh===w));
+    if (!top10.length) return;
+    bar('ch-sku-wh', labels, whList.map(w=>({
+        label: w,
+        data:  top10.map(([sku,d])=>d.byWh[w]||0),
+        backgroundColor: WH_COLOR[w]+'bb',
+        borderColor: WH_COLOR[w], borderWidth:1, borderRadius:3,
+    })), {
+        plugins:{ legend:{ display:true, position:'bottom', labels:{ boxWidth:10, padding:12, color:'#7c87a0' } } },
+        scales:{ x:{...SCALES.x, stacked:true}, y:{...SCALES.y, stacked:true,
+            ticks:{color:'#7c87a0'}, title:{display:true, text:'Units', color:'#7c87a0', font:{size:11}} } }
+    });
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
@@ -1088,18 +1737,19 @@ function closeDrawer() {
     document.getElementById('detail-drawer').classList.remove('open');
 }
 
-// ── Sidebar nav highlight on scroll ──────────────────────────────────────────
+// ── Nav highlight (scroll-based) ─────────────────────────────────────────────
 function initNavHighlight() {
-    const ids=['s-summary','s-volume','s-performance','s-carrier-perf','s-carrier-mix'];
+    const ids=['s-summary','s-volume','s-performance','s-sla-trend','s-carrier-perf','s-carrier-mix','s-sku','s-pending'];
     const obs=new IntersectionObserver(entries=>{
         entries.forEach(e=>{
             if(e.isIntersecting){
                 document.querySelectorAll('.sb-nav a').forEach(a=>a.classList.remove('active'));
                 const link=document.querySelector(`.sb-nav a[href="#${e.target.id}"]`);
                 if(link) link.classList.add('active');
+                if(e.target.id==='s-sku') loadAndRenderSKU();
             }
         });
-    },{threshold:0.3});
+    },{threshold:0.1});
     ids.forEach(id=>{const el=document.getElementById(id);if(el)obs.observe(el);});
 }
 
@@ -1115,16 +1765,36 @@ async function init() {
     if(ti) ti.value=toDateInput(initTo);
     const d90=daysAgo(90);
 
-    const [ship90, orders, annotations]=await Promise.all([
+    // Batch 1: core shipment data (heavy fetches — vw_shipments × 2, orders, annotations)
+    const [ship90, orders, annotations, pendingShips] = await Promise.all([
         fetchAll('vw_shipments',
             'warehouse_name,warehouse_slug,warehouse_shipment_id,shopify_order_number,tracking_number,carrier,service_name,shipped_at,warehouse_status',
             { shipped_at:`gte.${d90}` }),
         fetchAll('vw_orders',
             'warehouse_slug,shopify_order_number,order_created_at',
-            { order_created_at:`gte.${d90}` }),
+            { order_created_at:`gte.${d90}` }).catch(() => []),
         fetchAll('shipment_annotations',
             'warehouse_shipment_id,warehouse_slug,reason_code,note,exclude_from_avg',
             {}),
+        fetchAll('vw_shipments',
+            'warehouse_name,warehouse_slug,warehouse_shipment_id,shopify_order_number,carrier,service_name,shipped_at,warehouse_status',
+            { shipped_at:'is.null' }),
+    ]);
+
+    // Batch 2: dedicated pending views (lightweight — all run after batch 1 completes)
+    const [aaPending, gcPending, mintPending, zenPending] = await Promise.all([
+        fetchAll('vw_activeants_pending_orders',
+            'warehouse_name,warehouse_slug,warehouse_order_id,shopify_order_number,warehouse_status,order_created_at',
+            {}).catch(() => []),
+        fetchAll('vw_goodcang_pending_orders',
+            'warehouse_name,warehouse_slug,warehouse_order_id,shopify_order_number,warehouse_status,order_created_at',
+            {}).catch(() => []),
+        fetchAll('vw_mintsoft_pending_orders',
+            'warehouse_name,warehouse_slug,warehouse_order_id,shopify_order_number,warehouse_status,order_created_at',
+            {}).catch(() => []),
+        fetchAll('vw_zenventory_pending_orders',
+            'warehouse_name,warehouse_slug,warehouse_order_id,shopify_order_number,warehouse_status,order_created_at',
+            {}).catch(() => []),
     ]);
 
     const orderMap={};
@@ -1148,6 +1818,62 @@ async function init() {
                reason_code:ann.reason_code||null,note:ann.note||'',
                exclude_from_avg:ann.exclude_from_avg||false};
     });
+
+    // Pending orders: (a) vw_shipments rows with no shipped_at, enriched with order_created_at
+    //                 (b) ActiveAnts IsReady=FALSE orders from dedicated sync table
+    // Exclude warehouses that have dedicated pending views — their unshipped
+    // shipment records would otherwise duplicate and override the dedicated view entries.
+    const PENDING_VIEW_SLUGS = new Set(['mintsoft', 'goodcang', 'zenventory']);
+    const pendingFromShipments = pendingShips
+        .filter(s => !PENDING_VIEW_SLUGS.has(s.warehouse_slug))
+        .map(s => {
+            const oc = orderMap[`${s.warehouse_slug}:${s.shopify_order_number}`];
+            return { ...s, order_created_at: oc||null, otsH:null, withinSla:null,
+                     reason_code:null, note:'', exclude_from_avg:false };
+        });
+    const pendingFromAA = aaPending.map(s => ({
+        warehouse_name:        s.warehouse_name,
+        warehouse_slug:        s.warehouse_slug,
+        // use warehouse_order_id as the shipment id key for deduplication
+        warehouse_shipment_id: s.warehouse_order_id,
+        shopify_order_number:  s.shopify_order_number,
+        warehouse_status:      s.warehouse_status,
+        order_created_at:      s.order_created_at,
+        shipped_at:            null,
+        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
+    }));
+    const pendingFromGC = gcPending.map(s => ({
+        warehouse_name:        s.warehouse_name,
+        warehouse_slug:        s.warehouse_slug,
+        // use warehouse_order_id as the shipment id key for deduplication
+        warehouse_shipment_id: s.warehouse_order_id,
+        shopify_order_number:  s.shopify_order_number,
+        warehouse_status:      s.warehouse_status,
+        order_created_at:      s.order_created_at,
+        shipped_at:            null,
+        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
+    }));
+    const pendingFromMint = mintPending.map(s => ({
+        warehouse_name:        s.warehouse_name,
+        warehouse_slug:        s.warehouse_slug,
+        warehouse_shipment_id: s.warehouse_order_id,
+        shopify_order_number:  s.shopify_order_number,
+        warehouse_status:      s.warehouse_status,
+        order_created_at:      s.order_created_at,
+        shipped_at:            null,
+        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
+    }));
+    const pendingFromZen = zenPending.map(s => ({
+        warehouse_name:        s.warehouse_name,
+        warehouse_slug:        s.warehouse_slug,
+        warehouse_shipment_id: s.warehouse_order_id,
+        shopify_order_number:  s.shopify_order_number,
+        warehouse_status:      s.warehouse_status,
+        order_created_at:      s.order_created_at,
+        shipped_at:            null,
+        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
+    }));
+    G.pending = [...pendingFromShipments, ...pendingFromAA, ...pendingFromGC, ...pendingFromMint, ...pendingFromZen];
 
     applyFilters();
 
