@@ -1807,7 +1807,9 @@ async function init() {
         annMap[`${a.warehouse_slug}:${a.warehouse_shipment_id}`]=a;
 
     G.enriched=ship90.map(s=>{
-        const oc=orderMap[`${s.warehouse_slug}:${s.shopify_order_number}`];
+        const _base=s.shopify_order_number?s.shopify_order_number.replace(/_split(_split)*$/i,''):null;
+        const oc=orderMap[`${s.warehouse_slug}:${s.shopify_order_number}`]
+               ||(_base?orderMap[`${s.warehouse_slug}:${_base}`]:null);
         const ann=annMap[`${s.warehouse_slug}:${s.warehouse_shipment_id}`]||{};
         let otsH=null, withinSla=null;
         if(oc&&s.shipped_at){
@@ -1827,7 +1829,9 @@ async function init() {
     const pendingFromShipments = pendingShips
         .filter(s => !PENDING_VIEW_SLUGS.has(s.warehouse_slug))
         .map(s => {
-            const oc = orderMap[`${s.warehouse_slug}:${s.shopify_order_number}`];
+            const _base = s.shopify_order_number ? s.shopify_order_number.replace(/_split(_split)*$/i, '') : null;
+            const oc = orderMap[`${s.warehouse_slug}:${s.shopify_order_number}`]
+                    || (_base ? orderMap[`${s.warehouse_slug}:${_base}`] : null);
             return { ...s, order_created_at: oc||null, otsH:null, withinSla:null,
                      reason_code:null, note:'', exclude_from_avg:false };
         });
