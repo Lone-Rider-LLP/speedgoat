@@ -117,9 +117,13 @@
         /* ── Summary chips ── */
         .summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
         .stat-chip { background: var(--surface); border: 1px solid var(--border);
-                     border-radius: 8px; padding: 10px 16px; font-size: 12px; color: var(--muted); }
+                     border-radius: 8px; padding: 10px 16px; font-size: 12px; color: var(--muted);
+                     cursor: pointer; transition: all .15s; user-select: none; }
         .stat-chip strong { display: block; font-size: 20px; font-weight: 700;
-                            color: var(--text); margin-bottom: 2px; }
+                            color: var(--text); margin-bottom: 2px; transition: color .15s; }
+        .stat-chip:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+        .stat-chip.active { border-color: var(--accent); background: rgba(249,115,22,.1); color: var(--text); }
+        .stat-chip.active strong { color: var(--accent); }
     </style>
 </head>
 <body>
@@ -202,6 +206,7 @@ const WMS_LABELS = { in_goodcang:'AU-GoodCang', in_propack:'CA-Propack',
 let ALL = [];
 let _sort = { col: 'product_name', dir: 1 };
 let _missingFilter = new Set();
+let _statFilter = null; // null | 'active' | 'full' | 'gaps'
 
 // ── Fetch all rows with pagination ───────────────────────────
 async function fetchAll() {
@@ -256,6 +261,10 @@ function applyFilters() {
         if (type && r.product_type !== type) return false;
         // "Missing from" chips: show rows NOT in the selected warehouses
         for (const f of _missingFilter) { if (r[f]) return false; }
+        // Stat chip filters
+        if (_statFilter === 'active' && r.shopify_status !== 'active') return false;
+        if (_statFilter === 'full'   && covCount(r) !== 6) return false;
+        if (_statFilter === 'gaps'   && covCount(r) >= 6) return false;
         return true;
     });
 
@@ -325,14 +334,18 @@ function renderSummary() {
     const missing = ALL.filter(r => covCount(r) < 6).length;
 
     const stats = [
-        { label: 'Total SKUs',       value: total.toLocaleString() },
-        { label: 'Active',           value: active.toLocaleString() },
-        { label: 'Full coverage',    value: full.toLocaleString() },
-        { label: 'Coverage gaps',    value: missing.toLocaleString() },
+        { label: 'Total SKUs',    value: total.toLocaleString(),   stat: 'all' },
+        { label: 'Active',        value: active.toLocaleString(),  stat: 'active' },
+        { label: 'Full coverage', value: full.toLocaleString(),    stat: 'full' },
+        { label: 'Coverage gaps', value: missing.toLocaleString(), stat: 'gaps' },
     ];
-    document.getElementById('summary-row').innerHTML = stats.map(s =>
-        `<div class="stat-chip"><strong>${s.value}</strong>${s.label}</div>`
-    ).join('');
+    // 'all' chip is active when no stat filter is set
+    document.getElementById('summary-row').innerHTML = stats.map(s => {
+        const isActive = s.stat === 'all' ? _statFilter === null : _statFilter === s.stat;
+        return `<div class="stat-chip${isActive ? ' active' : ''}" data-stat="${s.stat}">
+            <strong>${s.value}</strong>${s.label}
+        </div>`;
+    }).join('');
 }
 
 // ── Populate product type dropdown ───────────────────────────
@@ -366,6 +379,20 @@ async function init() {
 document.getElementById('search').addEventListener('input', applyFilters);
 document.getElementById('status-filter').addEventListener('change', applyFilters);
 document.getElementById('type-filter').addEventListener('change', applyFilters);
+
+// Stat chip click (event delegation — chips are rendered dynamically)
+document.getElementById('summary-row').addEventListener('click', e => {
+    const chip = e.target.closest('.stat-chip');
+    if (!chip) return;
+    const stat = chip.dataset.stat;
+    if (stat === 'all') {
+        _statFilter = null;                                 // "Total SKUs" always clears
+    } else {
+        _statFilter = (_statFilter === stat) ? null : stat; // toggle same chip off
+    }
+    renderSummary();
+    applyFilters();
+});
 
 document.querySelectorAll('.chip[data-wms]').forEach(chip => {
     chip.addEventListener('click', () => {
