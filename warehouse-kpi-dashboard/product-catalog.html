@@ -85,6 +85,8 @@
         .price { text-align: right; font-variant-numeric: tabular-nums; }
         .weight { text-align: right; font-size: 12px; color: var(--muted);
                   font-variant-numeric: tabular-nums; }
+        .dims   { font-size: 12px; color: var(--muted); white-space: nowrap;
+                  font-variant-numeric: tabular-nums; }
 
         /* ── Status badge ── */
         .badge { display: inline-block; padding: 2px 9px; border-radius: 12px;
@@ -177,6 +179,7 @@
                         <th data-col="shopify_status">Status <span class="sort-arrow">↕</span></th>
                         <th data-col="price" class="price">Price <span class="sort-arrow">↕</span></th>
                         <th data-col="weight" class="weight">Weight <span class="sort-arrow">↕</span></th>
+                        <th data-col="item_length_cm" class="dims">L × W × H (cm) <span class="sort-arrow">↕</span></th>
                         <th data-col="coverage">Coverage <span class="sort-arrow">↕</span></th>
                         <th class="wms-cell wh-au" title="AU-GoodCang">AU</th>
                         <th class="wms-cell wh-ca" title="CA-Propack">CA</th>
@@ -211,7 +214,7 @@ let _statFilter = null; // null | 'active' | 'full' | 'gaps'
 // ── Fetch all rows with pagination ───────────────────────────
 async function fetchAll() {
     const PAGE = 1000;
-    const select = 'sku,product_name,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
+    const select = 'sku,product_name,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,item_length_cm,item_width_cm,item_height_cm,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
     let rows = [], offset = 0;
     while (true) {
         const u = new URL(`${URL_BASE}/rest/v1/vw_product_sku_coverage`);
@@ -293,6 +296,9 @@ function renderTable(data) {
             `<div class="cov-seg ${r[f] ? 'filled' : ''}"></div>`).join('');
         const wt = r.weight ? `${parseFloat(r.weight).toFixed(2)} ${r.weight_unit || ''}`.trim() : '—';
         const pr = r.price  ? `$${parseFloat(r.price).toFixed(2)}` : '—';
+        const fmt = v => v != null ? parseFloat(v).toFixed(1) : null;
+        const l = fmt(r.item_length_cm), w = fmt(r.item_width_cm), h = fmt(r.item_height_cm);
+        const dims = (l && w && h) ? `${l} × ${w} × ${h}` : '—';
         return `<tr>
             <td class="sku">${r.sku || '—'}</td>
             <td class="name" title="${r.product_name || ''}">${truncate(r.product_name, 45)}</td>
@@ -300,6 +306,7 @@ function renderTable(data) {
             <td><span class="badge ${r.shopify_status}">${r.shopify_status || '—'}</span></td>
             <td class="price">${pr}</td>
             <td class="weight">${wt}</td>
+            <td class="dims">${dims}</td>
             <td>
                 <div class="cov-bar" title="${cov}/6 warehouses">
                     ${covBar}
