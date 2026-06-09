@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedGoat — Product Catalog</title>
+    <style>
+        :root {
+            --bg:      #0c0e16;
+            --surface: #161926;
+            --surface2:#1e2235;
+            --border:  #2a2f45;
+            --text:    #e2e8f0;
+            --muted:   #7c87a0;
+            --accent:  #f97316;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 14px; min-height: 100vh; }
+
+        /* ── Header ── */
+        header { background: var(--surface); border-bottom: 1px solid var(--border);
+                 padding: 14px 28px; display: flex; align-items: center;
+                 justify-content: space-between; }
+        .hdr-left h1 { font-size: 18px; font-weight: 600; }
+        .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        #last-updated { font-size: 12px; color: var(--muted); }
+
+        /* ── Toolbar ── */
+        .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 28px;
+                   background: var(--surface); border-bottom: 1px solid var(--border);
+                   align-items: center; }
+        .toolbar input[type=search] {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 7px; padding: 7px 12px;
+            font-size: 13px; width: 260px; outline: none; }
+        .toolbar input[type=search]:focus { border-color: var(--accent); }
+        .toolbar select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 7px; padding: 7px 12px;
+            font-size: 13px; cursor: pointer; outline: none; }
+        .toolbar select:focus { border-color: var(--accent); }
+        .chip-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .chip { background: var(--surface2); border: 1px solid var(--border);
+                border-radius: 20px; padding: 4px 12px; font-size: 12px;
+                color: var(--muted); cursor: pointer; transition: all .15s;
+                user-select: none; white-space: nowrap; }
+        .chip.active { background: var(--accent); border-color: var(--accent);
+                       color: #fff; font-weight: 600; }
+        .chip:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+        .result-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+        /* ── Main ── */
+        main { padding: 22px 28px; }
+
+        /* ── Loading ── */
+        #loading { display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; height: 50vh; gap: 14px; color: var(--muted); }
+        .spinner { width: 34px; height: 34px; border: 3px solid var(--border);
+                   border-top-color: var(--accent); border-radius: 50%;
+                   animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Table ── */
+        .table-wrap { overflow-x: auto; border-radius: 10px;
+                      border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; }
+        thead th { background: var(--surface); padding: 10px 14px;
+                   text-align: left; font-size: 11px; font-weight: 700;
+                   letter-spacing: .08em; text-transform: uppercase;
+                   color: var(--muted); border-bottom: 1px solid var(--border);
+                   white-space: nowrap; cursor: pointer; user-select: none; }
+        thead th:hover { color: var(--text); }
+        thead th.sorted { color: var(--accent); }
+        thead th .sort-arrow { margin-left: 4px; opacity: .5; }
+        thead th.sorted .sort-arrow { opacity: 1; }
+        tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: var(--surface2); }
+        tbody td { padding: 10px 14px; font-size: 13px; vertical-align: middle; }
+        .sku  { font-family: monospace; font-size: 12px; color: var(--accent); }
+        .name { font-weight: 500; max-width: 260px; }
+        .variant { font-size: 12px; color: var(--muted); }
+        .price { text-align: right; font-variant-numeric: tabular-nums; }
+        .weight { text-align: right; font-size: 12px; color: var(--muted);
+                  font-variant-numeric: tabular-nums; }
+
+        /* ── Status badge ── */
+        .badge { display: inline-block; padding: 2px 9px; border-radius: 12px;
+                 font-size: 11px; font-weight: 600; text-transform: capitalize; }
+        .badge.active   { background: rgba(34,197,94,.15);  color: #22c55e; }
+        .badge.draft    { background: rgba(234,179,8,.15);  color: #eab308; }
+        .badge.archived { background: rgba(100,116,139,.15);color: #64748b; }
+
+        /* ── WMS coverage dots ── */
+        .wms-cell { text-align: center; }
+        .dot-yes { color: #22c55e; font-size: 16px; }
+        .dot-no  { color: var(--border); font-size: 16px; }
+
+        /* ── WMS header colours ── */
+        .wh-au   { color: #f97316; }
+        .wh-ca   { color: #a855f7; }
+        .wh-cn   { color: #ef4444; }
+        .wh-eu   { color: #3b82f6; }
+        .wh-uk   { color: #ec4899; }
+        .wh-us   { color: #14b8a6; }
+
+        /* ── Coverage summary bar ── */
+        .cov-bar { display: flex; gap: 2px; align-items: center; }
+        .cov-seg { height: 6px; width: 10px; border-radius: 2px; background: var(--border); }
+        .cov-seg.filled { background: #22c55e; }
+
+        /* ── Empty state ── */
+        .empty { padding: 48px; text-align: center; color: var(--muted); font-size: 13px; }
+
+        /* ── Summary chips ── */
+        .summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+        .stat-chip { background: var(--surface); border: 1px solid var(--border);
+                     border-radius: 8px; padding: 10px 16px; font-size: 12px; color: var(--muted); }
+        .stat-chip strong { display: block; font-size: 20px; font-weight: 700;
+                            color: var(--text); margin-bottom: 2px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="hdr-left">
+        <h1>SpeedGoat — Product Catalog</h1>
+        <p>Shopify SKUs × Warehouse coverage</p>
+    </div>
+    <div id="last-updated"></div>
+</header>
+
+<div class="toolbar">
+    <input type="search" id="search" placeholder="Search SKU or product name…">
+
+    <select id="status-filter">
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="draft">Draft</option>
+        <option value="archived">Archived</option>
+    </select>
+
+    <select id="type-filter">
+        <option value="">All product types</option>
+    </select>
+
+    <div class="chip-row" id="wms-chips">
+        <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing from:</span>
+        <span class="chip" data-wms="in_goodcang">AU-GoodCang</span>
+        <span class="chip" data-wms="in_propack">CA-Propack</span>
+        <span class="chip" data-wms="in_zenventory">CN-LHS</span>
+        <span class="chip" data-wms="in_activeants">EU-ActiveAnts</span>
+        <span class="chip" data-wms="in_mintsoft">UK-Mintsoft</span>
+        <span class="chip" data-wms="in_novex">US-Novex</span>
+    </div>
+
+    <span class="result-count" id="result-count"></span>
+</div>
+
+<main>
+    <div id="loading"><div class="spinner"></div><span>Loading product catalog…</span></div>
+    <div id="content" style="display:none">
+        <div class="summary-row" id="summary-row"></div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th data-col="sku">SKU <span class="sort-arrow">↕</span></th>
+                        <th data-col="product_name">Product <span class="sort-arrow">↕</span></th>
+                        <th data-col="variant_title">Variant <span class="sort-arrow">↕</span></th>
+                        <th data-col="shopify_status">Status <span class="sort-arrow">↕</span></th>
+                        <th data-col="price" class="price">Price <span class="sort-arrow">↕</span></th>
+                        <th data-col="weight" class="weight">Weight <span class="sort-arrow">↕</span></th>
+                        <th data-col="coverage">Coverage <span class="sort-arrow">↕</span></th>
+                        <th class="wms-cell wh-au" title="AU-GoodCang">AU</th>
+                        <th class="wms-cell wh-ca" title="CA-Propack">CA</th>
+                        <th class="wms-cell wh-cn" title="CN-LHS">CN</th>
+                        <th class="wms-cell wh-eu" title="EU-ActiveAnts">EU</th>
+                        <th class="wms-cell wh-uk" title="UK-Mintsoft">UK</th>
+                        <th class="wms-cell wh-us" title="US-Novex">US</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
+        <p id="truncation-note" style="font-size:12px;color:var(--muted);padding:10px 4px;display:none"></p>
+    </div>
+</main>
+
+<script>
+const URL_BASE = 'https://prcbzlnwqmtvqqpxwmgg.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2J6bG53cW10dnFxcHh3bWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDIyNDAsImV4cCI6MjA4ODgxODI0MH0.ujt8r3ZjhZGMYKQNqJJ9a8JNpNXLyr2_wKgq98dxdVc';
+const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+
+const WMS_FIELDS = ['in_goodcang','in_propack','in_zenventory','in_activeants','in_mintsoft','in_novex'];
+const WMS_LABELS = { in_goodcang:'AU-GoodCang', in_propack:'CA-Propack',
+                     in_zenventory:'CN-LHS', in_activeants:'EU-ActiveAnts',
+                     in_mintsoft:'UK-Mintsoft', in_novex:'US-Novex' };
+
+let ALL = [];
+let _sort = { col: 'product_name', dir: 1 };
+let _missingFilter = new Set();
+
+// ── Fetch all rows with pagination ───────────────────────────
+async function fetchAll() {
+    const PAGE = 1000;
+    const select = 'sku,product_name,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
+    let rows = [], offset = 0;
+    while (true) {
+        const u = new URL(`${URL_BASE}/rest/v1/vw_product_sku_coverage`);
+        u.searchParams.set('select', select);
+        u.searchParams.set('limit',  PAGE);
+        u.searchParams.set('offset', offset);
+        const r = await fetch(u, { headers: HEADERS, cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+        const page = await r.json();
+        rows = rows.concat(page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+    }
+    return rows;
+}
+
+// ── Coverage count helper ────────────────────────────────────
+const covCount = r => WMS_FIELDS.filter(f => r[f]).length;
+
+// ── Sort ─────────────────────────────────────────────────────
+function sortedData(data) {
+    return [...data].sort((a, b) => {
+        let av, bv;
+        if (_sort.col === 'coverage') { av = covCount(a); bv = covCount(b); }
+        else if (_sort.col === 'price' || _sort.col === 'weight') {
+            av = parseFloat(a[_sort.col]) || 0;
+            bv = parseFloat(b[_sort.col]) || 0;
+        } else {
+            av = (a[_sort.col] || '').toLowerCase();
+            bv = (b[_sort.col] || '').toLowerCase();
+        }
+        if (av < bv) return -_sort.dir;
+        if (av > bv) return  _sort.dir;
+        return 0;
+    });
+}
+
+// ── Filter ───────────────────────────────────────────────────
+function applyFilters() {
+    const q       = document.getElementById('search').value.trim().toLowerCase();
+    const status  = document.getElementById('status-filter').value;
+    const type    = document.getElementById('type-filter').value;
+
+    const filtered = ALL.filter(r => {
+        if (q && !r.sku?.toLowerCase().includes(q) && !r.product_name?.toLowerCase().includes(q)) return false;
+        if (status && r.shopify_status !== status) return false;
+        if (type && r.product_type !== type) return false;
+        // "Missing from" chips: show rows NOT in the selected warehouses
+        for (const f of _missingFilter) { if (r[f]) return false; }
+        return true;
+    });
+
+    renderTable(filtered);
+}
+
+// ── Render ───────────────────────────────────────────────────
+function renderTable(data) {
+    document.getElementById('result-count').textContent = `${data.length.toLocaleString()} SKUs`;
+
+    const sorted = sortedData(data);
+    const PAGE   = 500;
+    const rows   = sorted.slice(0, PAGE);
+
+    const note = document.getElementById('truncation-note');
+    if (sorted.length > PAGE) {
+        note.style.display = '';
+        note.textContent = `Showing ${PAGE} of ${sorted.length.toLocaleString()} SKUs — use filters to narrow down`;
+    } else {
+        note.style.display = 'none';
+    }
+
+    document.getElementById('tbody').innerHTML = rows.map(r => {
+        const cov = covCount(r);
+        const covBar = WMS_FIELDS.map(f =>
+            `<div class="cov-seg ${r[f] ? 'filled' : ''}"></div>`).join('');
+        const wt = r.weight ? `${parseFloat(r.weight).toFixed(2)} ${r.weight_unit || ''}`.trim() : '—';
+        const pr = r.price  ? `$${parseFloat(r.price).toFixed(2)}` : '—';
+        return `<tr>
+            <td class="sku">${r.sku || '—'}</td>
+            <td class="name" title="${r.product_name || ''}">${truncate(r.product_name, 45)}</td>
+            <td class="variant">${r.variant_title && r.variant_title !== 'Default Title' ? r.variant_title : '—'}</td>
+            <td><span class="badge ${r.shopify_status}">${r.shopify_status || '—'}</span></td>
+            <td class="price">${pr}</td>
+            <td class="weight">${wt}</td>
+            <td>
+                <div class="cov-bar" title="${cov}/6 warehouses">
+                    ${covBar}
+                    <span style="font-size:11px;color:var(--muted);margin-left:5px">${cov}/6</span>
+                </div>
+            </td>
+            ${WMS_FIELDS.map(f => `<td class="wms-cell">
+                <span class="${r[f] ? 'dot-yes' : 'dot-no'}">${r[f] ? '●' : '○'}</span>
+            </td>`).join('')}
+        </tr>`;
+    }).join('');
+
+    // Update sorted header indicator
+    document.querySelectorAll('thead th[data-col]').forEach(th => {
+        th.classList.toggle('sorted', th.dataset.col === _sort.col);
+        const arrow = th.querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = th.dataset.col === _sort.col
+            ? (_sort.dir === 1 ? '↑' : '↓') : '↕';
+    });
+}
+
+function truncate(s, n) {
+    if (!s) return '—';
+    return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+// ── Summary stats ────────────────────────────────────────────
+function renderSummary() {
+    const total   = ALL.length;
+    const active  = ALL.filter(r => r.shopify_status === 'active').length;
+    const full    = ALL.filter(r => covCount(r) === 6).length;
+    const missing = ALL.filter(r => covCount(r) < 6).length;
+
+    const stats = [
+        { label: 'Total SKUs',       value: total.toLocaleString() },
+        { label: 'Active',           value: active.toLocaleString() },
+        { label: 'Full coverage',    value: full.toLocaleString() },
+        { label: 'Coverage gaps',    value: missing.toLocaleString() },
+    ];
+    document.getElementById('summary-row').innerHTML = stats.map(s =>
+        `<div class="stat-chip"><strong>${s.value}</strong>${s.label}</div>`
+    ).join('');
+}
+
+// ── Populate product type dropdown ───────────────────────────
+function populateFilters() {
+    const types = [...new Set(ALL.map(r => r.product_type).filter(Boolean))].sort();
+    const sel = document.getElementById('type-filter');
+    types.forEach(t => { const o = document.createElement('option'); o.value = t; o.text = t; sel.add(o); });
+}
+
+// ── Init ─────────────────────────────────────────────────────
+async function init() {
+    try {
+        ALL = await fetchAll();
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = '';
+
+        populateFilters();
+        renderSummary();
+        applyFilters();
+
+        document.getElementById('last-updated').textContent =
+            `Last synced: ${new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric' })}`;
+
+    } catch (e) {
+        document.getElementById('loading').innerHTML =
+            `<p style="color:#fca5a5">Failed to load: ${e.message}</p>`;
+    }
+}
+
+// ── Event listeners ──────────────────────────────────────────
+document.getElementById('search').addEventListener('input', applyFilters);
+document.getElementById('status-filter').addEventListener('change', applyFilters);
+document.getElementById('type-filter').addEventListener('change', applyFilters);
+
+document.querySelectorAll('.chip[data-wms]').forEach(chip => {
+    chip.addEventListener('click', () => {
+        const f = chip.dataset.wms;
+        if (_missingFilter.has(f)) { _missingFilter.delete(f); chip.classList.remove('active'); }
+        else                       { _missingFilter.add(f);    chip.classList.add('active'); }
+        applyFilters();
+    });
+});
+
+document.querySelectorAll('thead th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (_sort.col === col) _sort.dir *= -1;
+        else { _sort.col = col; _sort.dir = 1; }
+        applyFilters();
+    });
+});
+
+init();
+</script>
+</body>
+</html>
