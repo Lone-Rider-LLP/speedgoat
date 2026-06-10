@@ -276,6 +276,7 @@ function applyFilters() {
     const type    = document.getElementById('type-filter').value;
 
     const filtered = ALL.filter(r => {
+        if (r.sku?.toUpperCase().startsWith('BUNDLE')) return false; // virtual SKUs — excluded
         if (q && !r.sku?.toLowerCase().includes(q) && !r.product_name?.toLowerCase().includes(q)) return false;
         if (status && r.shopify_status !== status) return false;
         if (type && r.product_type !== type) return false;
