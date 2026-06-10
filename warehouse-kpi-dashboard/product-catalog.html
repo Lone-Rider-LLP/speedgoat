@@ -53,7 +53,7 @@
         .dl-btn { background: var(--surface2); border: 1px solid var(--border);
                   color: var(--muted); border-radius: 7px; padding: 7px 12px;
                   font-size: 13px; cursor: pointer; transition: all .15s;
-                  white-space: nowrap; margin-left: auto; }
+                  white-space: nowrap; }
         .dl-btn:hover { border-color: var(--accent); color: var(--text); }
 
         /* ── Main ── */
@@ -134,22 +134,22 @@
         .stat-chip.active strong { color: var(--accent); }
 
         /* ── Column selector panel ── */
-        .col-panel-wrap { position: relative; }
-        #col-panel { position: absolute; top: calc(100% + 8px); right: 0;
-                     background: var(--surface); border: 1px solid var(--border);
-                     border-radius: 10px; padding: 14px 16px; z-index: 100;
-                     min-width: 280px; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
-        .col-panel-section { font-size: 10px; font-weight: 700; letter-spacing: .1em;
+        .toolbar-right { margin-left: auto; display: flex; gap: 8px;
+                         align-items: center; position: relative; }
+        #col-panel { position: absolute; top: calc(100% + 10px); right: 0;
+                     background: var(--surface2); border: 1px solid var(--border);
+                     border-radius: 10px; padding: 6px 0; z-index: 200;
+                     width: 210px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+        .col-panel-section { font-size: 10px; font-weight: 700; letter-spacing: .08em;
                              text-transform: uppercase; color: var(--muted);
-                             margin: 10px 0 6px; padding-top: 10px;
-                             border-top: 1px solid var(--border); }
-        .col-panel-section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
-        .col-panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
-        .col-check { display: flex; align-items: center; gap: 6px; cursor: pointer;
-                     font-size: 12px; color: var(--text); padding: 3px 0;
-                     user-select: none; white-space: nowrap; }
-        .col-check input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
-        .col-check:hover { color: var(--accent); }
+                             padding: 10px 14px 4px; }
+        .col-panel-divider { height: 1px; background: var(--border); margin: 4px 0; }
+        .col-check { display: flex; align-items: center; gap: 8px; cursor: pointer;
+                     font-size: 12px; color: var(--text); padding: 5px 14px;
+                     user-select: none; transition: background .1s; }
+        .col-check input[type=checkbox] { accent-color: var(--accent); cursor: pointer;
+                                          flex-shrink: 0; }
+        .col-check:hover { background: rgba(249,115,22,.08); color: var(--accent); }
     </style>
     <style id="col-vis"></style>
 </head>
@@ -198,38 +198,33 @@
     </div>
 
     <span class="result-count" id="result-count"></span>
-    <div class="col-panel-wrap">
+    <div class="toolbar-right">
         <button class="dl-btn" id="col-toggle-btn" onclick="toggleColPanel()">⚙ Columns</button>
+        <button class="dl-btn" id="dl-btn" onclick="downloadCSV()">⬇ Download CSV</button>
         <div id="col-panel" style="display:none">
             <div class="col-panel-section">Core</div>
-            <div class="col-panel-grid">
-                <label class="col-check"><input type="checkbox" data-col="cc-variant_title"      checked> Variant</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-shopify_status"     checked> Status</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-price"              checked> Price</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-weight"             checked> Weight</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-item_dims"          checked> Item Dims</label>
-            </div>
+            <label class="col-check"><input type="checkbox" data-col="cc-variant_title"  checked> Variant</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-shopify_status" checked> Status</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-price"          checked> Price</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-weight"         checked> Weight</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-item_dims"      checked> Item Dims (L×W×H)</label>
+            <div class="col-panel-divider"></div>
             <div class="col-panel-section">Metadata</div>
-            <div class="col-panel-grid">
-                <label class="col-check"><input type="checkbox" data-col="cc-variant_type"> Variant Type</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-segmentation"> Segmentation</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-product_type"> Product Type</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-mpn"> MPN</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-procurement_status"> Procurement Status</label>
-            </div>
+            <label class="col-check"><input type="checkbox" data-col="cc-variant_type"> Variant Type</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-segmentation"> Segmentation</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-product_type"> Product Type</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-mpn"> MPN</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-procurement_status"> Procurement Status</label>
+            <div class="col-panel-divider"></div>
             <div class="col-panel-section">Master Carton</div>
-            <div class="col-panel-grid">
-                <label class="col-check"><input type="checkbox" data-col="cc-carton_dims"> Dims L×W×H</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-carton_weight"> Weight (kg)</label>
-                <label class="col-check"><input type="checkbox" data-col="cc-carton_qty"> Qty per carton</label>
-            </div>
+            <label class="col-check"><input type="checkbox" data-col="cc-carton_dims"> Dims (L×W×H)</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-carton_weight"> Weight (kg)</label>
+            <label class="col-check"><input type="checkbox" data-col="cc-carton_qty"> Qty per carton</label>
+            <div class="col-panel-divider"></div>
             <div class="col-panel-section">WMS Coverage</div>
-            <div class="col-panel-grid">
-                <label class="col-check"><input type="checkbox" data-col="cc-wms" checked> All warehouses</label>
-            </div>
+            <label class="col-check"><input type="checkbox" data-col="cc-wms" checked> All warehouses</label>
         </div>
     </div>
-    <button class="dl-btn" id="dl-btn" onclick="downloadCSV()">⬇ Download CSV</button>
 </div>
 
 <main>
@@ -571,7 +566,7 @@ function toggleColPanel() {
 
 // Close col panel when clicking outside it
 document.addEventListener('click', e => {
-    const wrap = document.querySelector('.col-panel-wrap');
+    const wrap = document.querySelector('.toolbar-right');
     if (wrap && !wrap.contains(e.target)) {
         document.getElementById('col-panel').style.display = 'none';
     }
