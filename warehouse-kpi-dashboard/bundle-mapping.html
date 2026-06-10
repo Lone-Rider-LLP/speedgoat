@@ -235,12 +235,12 @@ function renderTable(keys) {
     const cont  = document.getElementById('table-container');
 
     if (keys.length === 0) {
-        empty.style.display = '';
+        empty.style.display = 'block';
         cont.style.display  = 'none';
         return;
     }
     empty.style.display = 'none';
-    cont.style.display  = '';
+    cont.style.display  = 'block';
 
     document.getElementById('tbody').innerHTML = keys.map(code => {
         const b    = BUNDLES.get(code);
@@ -291,8 +291,14 @@ function escHtml(s) {
     } catch (err) {
         document.getElementById('loading').style.display = 'none';
         const el = document.getElementById('error-msg');
-        el.style.display = '';
-        el.textContent   = `Failed to load bundle data: ${err.message}`;
+        el.style.display = 'block';
+        el.innerHTML = `
+            <strong>Could not load bundle data.</strong><br>
+            <span style="font-size:12px;opacity:.8">${escHtml(err.message)}</span><br><br>
+            <span style="font-size:12px;color:var(--muted)">
+                If you haven't yet: run migration <code>0007_bundle_mapping.sql</code> in Supabase,
+                then trigger the <em>Import Bundle Data</em> GitHub Actions workflow.
+            </span>`;
         console.error(err);
     }
 })();
