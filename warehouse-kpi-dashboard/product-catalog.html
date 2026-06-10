@@ -132,7 +132,26 @@
         .stat-chip:hover:not(.active) { border-color: var(--accent); color: var(--text); }
         .stat-chip.active { border-color: var(--accent); background: rgba(249,115,22,.1); color: var(--text); }
         .stat-chip.active strong { color: var(--accent); }
+
+        /* ── Column selector panel ── */
+        .col-panel-wrap { position: relative; }
+        #col-panel { position: absolute; top: calc(100% + 8px); right: 0;
+                     background: var(--surface); border: 1px solid var(--border);
+                     border-radius: 10px; padding: 14px 16px; z-index: 100;
+                     min-width: 280px; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
+        .col-panel-section { font-size: 10px; font-weight: 700; letter-spacing: .1em;
+                             text-transform: uppercase; color: var(--muted);
+                             margin: 10px 0 6px; padding-top: 10px;
+                             border-top: 1px solid var(--border); }
+        .col-panel-section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+        .col-panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+        .col-check { display: flex; align-items: center; gap: 6px; cursor: pointer;
+                     font-size: 12px; color: var(--text); padding: 3px 0;
+                     user-select: none; white-space: nowrap; }
+        .col-check input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+        .col-check:hover { color: var(--accent); }
     </style>
+    <style id="col-vis"></style>
 </head>
 <body>
 
@@ -179,6 +198,37 @@
     </div>
 
     <span class="result-count" id="result-count"></span>
+    <div class="col-panel-wrap">
+        <button class="dl-btn" id="col-toggle-btn" onclick="toggleColPanel()">⚙ Columns</button>
+        <div id="col-panel" style="display:none">
+            <div class="col-panel-section">Core</div>
+            <div class="col-panel-grid">
+                <label class="col-check"><input type="checkbox" data-col="cc-variant_title"      checked> Variant</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-shopify_status"     checked> Status</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-price"              checked> Price</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-weight"             checked> Weight</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-item_dims"          checked> Item Dims</label>
+            </div>
+            <div class="col-panel-section">Metadata</div>
+            <div class="col-panel-grid">
+                <label class="col-check"><input type="checkbox" data-col="cc-variant_type"> Variant Type</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-segmentation"> Segmentation</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-product_type"> Product Type</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-mpn"> MPN</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-procurement_status"> Procurement Status</label>
+            </div>
+            <div class="col-panel-section">Master Carton</div>
+            <div class="col-panel-grid">
+                <label class="col-check"><input type="checkbox" data-col="cc-carton_dims"> Dims L×W×H</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-carton_weight"> Weight (kg)</label>
+                <label class="col-check"><input type="checkbox" data-col="cc-carton_qty"> Qty per carton</label>
+            </div>
+            <div class="col-panel-section">WMS Coverage</div>
+            <div class="col-panel-grid">
+                <label class="col-check"><input type="checkbox" data-col="cc-wms" checked> All warehouses</label>
+            </div>
+        </div>
+    </div>
     <button class="dl-btn" id="dl-btn" onclick="downloadCSV()">⬇ Download CSV</button>
 </div>
 
@@ -192,17 +242,25 @@
                     <tr>
                         <th data-col="sku">SKU <span class="sort-arrow">↕</span></th>
                         <th data-col="product_label_name">Product Label Name <span class="sort-arrow">↕</span></th>
-                        <th data-col="variant_title">Variant <span class="sort-arrow">↕</span></th>
-                        <th data-col="shopify_status">Status <span class="sort-arrow">↕</span></th>
-                        <th data-col="price" class="price">Price <span class="sort-arrow">↕</span></th>
-                        <th data-col="weight" class="weight">Weight <span class="sort-arrow">↕</span></th>
-                        <th data-col="item_length_cm" class="dims">L × W × H (cm) <span class="sort-arrow">↕</span></th>
-                        <th class="wms-cell wh-au" title="AU-GoodCang">AU</th>
-                        <th class="wms-cell wh-ca" title="CA-Propack">CA</th>
-                        <th class="wms-cell wh-cn" title="CN-LHS">CN</th>
-                        <th class="wms-cell wh-eu" title="EU-ActiveAnts">EU</th>
-                        <th class="wms-cell wh-uk" title="UK-Mintsoft">UK</th>
-                        <th class="wms-cell wh-us" title="US-Novex">US</th>
+                        <th data-col="variant_title"      class="cc-variant_title">Variant <span class="sort-arrow">↕</span></th>
+                        <th data-col="variant_type"       class="cc-variant_type">Variant Type <span class="sort-arrow">↕</span></th>
+                        <th data-col="segmentation"       class="cc-segmentation">Segmentation <span class="sort-arrow">↕</span></th>
+                        <th data-col="shopify_status"     class="cc-shopify_status">Status <span class="sort-arrow">↕</span></th>
+                        <th data-col="product_type"       class="cc-product_type">Product Type <span class="sort-arrow">↕</span></th>
+                        <th data-col="price"              class="cc-price price">Price <span class="sort-arrow">↕</span></th>
+                        <th data-col="weight"             class="cc-weight weight">Weight <span class="sort-arrow">↕</span></th>
+                        <th data-col="item_length_cm"     class="cc-item_dims dims">Item L×W×H (cm) <span class="sort-arrow">↕</span></th>
+                        <th data-col="master_carton_length_cm" class="cc-carton_dims dims">Carton L×W×H (cm) <span class="sort-arrow">↕</span></th>
+                        <th data-col="master_carton_weight_kg" class="cc-carton_weight dims">Carton Wt (kg) <span class="sort-arrow">↕</span></th>
+                        <th data-col="master_carton_quantity"  class="cc-carton_qty">Carton Qty <span class="sort-arrow">↕</span></th>
+                        <th data-col="mpn"                class="cc-mpn">MPN <span class="sort-arrow">↕</span></th>
+                        <th data-col="procurement_status" class="cc-procurement_status">Procurement <span class="sort-arrow">↕</span></th>
+                        <th class="wms-cell wh-au cc-wms" title="AU-GoodCang">AU</th>
+                        <th class="wms-cell wh-ca cc-wms" title="CA-Propack">CA</th>
+                        <th class="wms-cell wh-cn cc-wms" title="CN-LHS">CN</th>
+                        <th class="wms-cell wh-eu cc-wms" title="EU-ActiveAnts">EU</th>
+                        <th class="wms-cell wh-uk cc-wms" title="UK-Mintsoft">UK</th>
+                        <th class="wms-cell wh-us cc-wms" title="US-Novex">US</th>
                     </tr>
                 </thead>
                 <tbody id="tbody"></tbody>
@@ -364,19 +422,29 @@ function renderTable(data) {
     document.getElementById('tbody').innerHTML = rows.map(r => {
         const wt = r.weight ? `${parseFloat(r.weight).toFixed(2)} ${r.weight_unit || ''}`.trim() : '—';
         const pr = r.price  ? `$${parseFloat(r.price).toFixed(2)}` : '—';
-        const fmt = v => v != null ? parseFloat(v).toFixed(1) : null;
-        const l = fmt(r.item_length_cm), w = fmt(r.item_width_cm), h = fmt(r.item_height_cm);
-        const dims = (l && w && h) ? `${l} × ${w} × ${h}` : '—';
         const displayName = r.product_label_name || r.product_name || '';
+        const fmtNum = (v, d=1) => v != null ? parseFloat(v).toFixed(d) : null;
+        const cl  = fmtNum(r.item_length_cm), cw = fmtNum(r.item_width_cm), ch = fmtNum(r.item_height_cm);
+        const dims = (cl && cw && ch) ? `${cl} × ${cw} × ${ch}` : '—';
+        const mcl = fmtNum(r.master_carton_length_cm), mcw = fmtNum(r.master_carton_width_cm), mch = fmtNum(r.master_carton_height_cm);
+        const cartonDims = (mcl && mcw && mch) ? `${mcl} × ${mcw} × ${mch}` : '—';
         return `<tr>
             <td class="sku">${r.sku || '—'}</td>
             <td class="name" title="${displayName}">${truncate(displayName, 45)}</td>
-            <td class="variant">${r.variant_title && r.variant_title !== 'Default Title' ? r.variant_title : '—'}</td>
-            <td><span class="badge ${r.shopify_status}">${r.shopify_status || '—'}</span></td>
-            <td class="price">${pr}</td>
-            <td class="weight">${wt}</td>
-            <td class="dims">${dims}</td>
-            ${WMS_FIELDS.map(f => `<td class="wms-cell">
+            <td class="variant cc-variant_title">${r.variant_title && r.variant_title !== 'Default Title' ? r.variant_title : '—'}</td>
+            <td class="variant cc-variant_type">${r.variant_type || '—'}</td>
+            <td class="variant cc-segmentation">${r.segmentation || '—'}</td>
+            <td class="cc-shopify_status"><span class="badge ${r.shopify_status}">${r.shopify_status || '—'}</span></td>
+            <td class="variant cc-product_type">${r.product_type || '—'}</td>
+            <td class="price cc-price">${pr}</td>
+            <td class="weight cc-weight">${wt}</td>
+            <td class="dims cc-item_dims">${dims}</td>
+            <td class="dims cc-carton_dims">${cartonDims}</td>
+            <td class="dims cc-carton_weight">${r.master_carton_weight_kg != null ? fmtNum(r.master_carton_weight_kg, 3) + ' kg' : '—'}</td>
+            <td class="dims cc-carton_qty">${r.master_carton_quantity != null ? r.master_carton_quantity : '—'}</td>
+            <td class="variant cc-mpn" style="font-family:monospace;font-size:12px">${r.mpn || '—'}</td>
+            <td class="variant cc-procurement_status">${r.procurement_status || '—'}</td>
+            ${WMS_FIELDS.map(f => `<td class="wms-cell cc-wms">
                 <span class="${r[f] ? 'dot-yes' : 'dot-no'}">${r[f] ? '●' : '○'}</span>
             </td>`).join('')}
         </tr>`;
@@ -481,6 +549,41 @@ document.querySelectorAll('thead th[data-col]').forEach(th => {
         applyFilters();
     });
 });
+
+// ── Column visibility ────────────────────────────────────────
+// Reads checked state from panel checkboxes and writes CSS rules into
+// the <style id="col-vis"> tag to hide/show entire columns at once.
+function applyColVisibility() {
+    const style  = document.getElementById('col-vis');
+    const hidden = [];
+    document.querySelectorAll('#col-panel input[type=checkbox]').forEach(cb => {
+        if (!cb.checked) hidden.push(cb.dataset.col);
+    });
+    style.textContent = hidden.map(cls =>
+        `.${cls} { display: none; }`
+    ).join('\n');
+}
+
+function toggleColPanel() {
+    const panel = document.getElementById('col-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close col panel when clicking outside it
+document.addEventListener('click', e => {
+    const wrap = document.querySelector('.col-panel-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+        document.getElementById('col-panel').style.display = 'none';
+    }
+});
+
+// Wire up column toggle checkboxes
+document.querySelectorAll('#col-panel input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', applyColVisibility);
+});
+
+// Apply initial state (hides columns that start unchecked)
+applyColVisibility();
 
 init();
 </script>
