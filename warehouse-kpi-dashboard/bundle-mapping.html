@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedGoat — Bundle Mapping</title>
+    <style>
+        :root {
+            --bg:      #0c0e16;
+            --surface: #161926;
+            --surface2:#1e2235;
+            --border:  #2a2f45;
+            --text:    #e2e8f0;
+            --muted:   #7c87a0;
+            --accent:  #f97316;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 14px; min-height: 100vh; }
+
+        /* ── Header ── */
+        header { background: var(--surface); border-bottom: 1px solid var(--border);
+                 padding: 14px 28px; display: flex; align-items: center;
+                 justify-content: space-between; }
+        .hdr-left { display: flex; flex-direction: column; gap: 4px; }
+        .back-link { font-size: 12px; color: var(--muted); text-decoration: none;
+                     display: inline-flex; align-items: center; gap: 4px;
+                     transition: color .15s; margin-bottom: 2px; }
+        .back-link:hover { color: var(--accent); }
+        .hdr-left h1 { font-size: 18px; font-weight: 600; }
+        .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        #last-updated { font-size: 12px; color: var(--muted); }
+
+        /* ── Toolbar ── */
+        .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 28px;
+                   background: var(--surface); border-bottom: 1px solid var(--border);
+                   align-items: center; }
+        .toolbar input[type=search] {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 7px; padding: 7px 12px;
+            font-size: 13px; width: 320px; outline: none; }
+        .toolbar input[type=search]:focus { border-color: var(--accent); }
+        .toolbar input[type=search]::placeholder { color: var(--muted); }
+        .result-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+        /* ── Main ── */
+        main { padding: 22px 28px; }
+
+        /* ── Loading ── */
+        #loading { display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; height: 50vh; gap: 14px; color: var(--muted); }
+        .spinner { width: 34px; height: 34px; border: 3px solid var(--border);
+                   border-top-color: var(--accent); border-radius: 50%;
+                   animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Table ── */
+        .table-wrap { overflow-x: auto; border-radius: 10px;
+                      border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; }
+        thead th { background: var(--surface); padding: 10px 14px;
+                   text-align: left; font-size: 11px; font-weight: 700;
+                   letter-spacing: .08em; text-transform: uppercase;
+                   color: var(--muted); border-bottom: 1px solid var(--border);
+                   white-space: nowrap; }
+        tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: var(--surface2); }
+        tbody td { padding: 10px 14px; vertical-align: top; }
+
+        /* ── Bundle code cell ── */
+        .bundle-code {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 12px; font-weight: 600; color: var(--accent);
+            white-space: nowrap;
+        }
+        .bundle-name {
+            font-size: 12px; color: var(--muted); max-width: 340px;
+            line-height: 1.4;
+        }
+
+        /* ── Component chips ── */
+        .chips { display: flex; flex-wrap: wrap; gap: 5px; max-width: 640px; }
+        .chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 5px; padding: 3px 8px; font-size: 11px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            color: var(--text); white-space: nowrap;
+        }
+        .chip .qty {
+            background: var(--accent); color: #fff; border-radius: 3px;
+            padding: 1px 5px; font-size: 10px; font-weight: 700;
+            line-height: 1.4;
+        }
+
+        /* ── Count badge ── */
+        .count-badge {
+            display: inline-block; background: var(--surface2);
+            border: 1px solid var(--border); border-radius: 12px;
+            padding: 2px 8px; font-size: 11px; color: var(--muted);
+            white-space: nowrap;
+        }
+
+        /* ── Error ── */
+        #error-msg { color: #f87171; padding: 20px 28px; display: none; }
+
+        /* ── Empty state ── */
+        #empty-state { text-align: center; padding: 60px 28px;
+                       color: var(--muted); display: none; }
+        #empty-state svg { margin-bottom: 12px; opacity: .4; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="hdr-left">
+        <a class="back-link" href="index.html">← Warehouse KPIs</a>
+        <h1>Bundle Mapping</h1>
+        <p>Bundle SKU codes and their component SKUs</p>
+    </div>
+    <span id="last-updated"></span>
+</header>
+
+<div class="toolbar">
+    <input type="search" id="search"
+           placeholder="Search by bundle code, name or component SKU…">
+    <span id="result-count" class="result-count"></span>
+</div>
+
+<div id="error-msg"></div>
+
+<main>
+    <div id="loading">
+        <div class="spinner"></div>
+        <span>Loading bundle data…</span>
+    </div>
+
+    <div id="empty-state">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.5">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <div>No bundles match your search</div>
+    </div>
+
+    <div id="table-container" style="display:none">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Bundle SKU Code</th>
+                        <th>Bundle Name</th>
+                        <th style="text-align:center">Components</th>
+                        <th>Component SKUs</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<script>
+const URL_BASE = 'https://prcbzlnwqmtvqqpxwmgg.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2J6bG53cW10dnFxcHh3bWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDIyNDAsImV4cCI6MjA4ODgxODI0MH0.ujt8r3ZjhZGMYKQNqJJ9a8JNpNXLyr2_wKgq98dxdVc';
+const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+
+// MAP of bundle_sku_code → { name, components: [{sku, quantity}] }
+let BUNDLES = new Map();
+// Ordered list of codes for stable rendering
+let BUNDLE_KEYS = [];
+
+// ── Fetch all rows ────────────────────────────────────────────
+async function fetchAll() {
+    const PAGE = 2000;
+    let rows = [], offset = 0;
+    while (true) {
+        const u = new URL(`${URL_BASE}/rest/v1/vw_bundle_components`);
+        u.searchParams.set('select', 'bundle_sku_code,bundle_sku_name,component_sku,quantity,sort_order');
+        u.searchParams.set('order',  'bundle_sku_code,sort_order');
+        u.searchParams.set('limit',  PAGE);
+        u.searchParams.set('offset', offset);
+        const r = await fetch(u, { headers: HEADERS, cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+        const page = await r.json();
+        rows = rows.concat(page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+    }
+    return rows;
+}
+
+// ── Group flat rows into bundle map ─────────────────────────
+function groupRows(rows) {
+    const map = new Map();
+    for (const r of rows) {
+        if (!map.has(r.bundle_sku_code)) {
+            map.set(r.bundle_sku_code, {
+                name:       r.bundle_sku_name,
+                components: []
+            });
+        }
+        map.get(r.bundle_sku_code).components.push({
+            sku:      r.component_sku,
+            quantity: r.quantity
+        });
+    }
+    return map;
+}
+
+// ── Filter ───────────────────────────────────────────────────
+function applyFilters() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+
+    const filtered = BUNDLE_KEYS.filter(code => {
+        if (!q) return true;
+        const b = BUNDLES.get(code);
+        if (code.toLowerCase().includes(q))       return true;
+        if (b.name.toLowerCase().includes(q))     return true;
+        if (b.components.some(c => c.sku.toLowerCase().includes(q))) return true;
+        return false;
+    });
+
+    renderTable(filtered);
+}
+
+// ── Render ───────────────────────────────────────────────────
+function renderTable(keys) {
+    document.getElementById('result-count').textContent =
+        `${keys.length.toLocaleString()} bundle${keys.length !== 1 ? 's' : ''}`;
+
+    const empty = document.getElementById('empty-state');
+    const cont  = document.getElementById('table-container');
+
+    if (keys.length === 0) {
+        empty.style.display = '';
+        cont.style.display  = 'none';
+        return;
+    }
+    empty.style.display = 'none';
+    cont.style.display  = '';
+
+    document.getElementById('tbody').innerHTML = keys.map(code => {
+        const b    = BUNDLES.get(code);
+        const n    = b.components.length;
+
+        const chips = b.components.map(c => {
+            const qtyBadge = c.quantity > 1
+                ? `<span class="qty">${c.quantity}×</span>`
+                : '';
+            return `<span class="chip">${qtyBadge}${escHtml(c.sku)}</span>`;
+        }).join('');
+
+        return `<tr>
+            <td><span class="bundle-code">${escHtml(code)}</span></td>
+            <td><span class="bundle-name">${escHtml(b.name)}</span></td>
+            <td style="text-align:center">
+                <span class="count-badge">${n}</span>
+            </td>
+            <td><div class="chips">${chips}</div></td>
+        </tr>`;
+    }).join('');
+}
+
+function escHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+
+// ── Init ─────────────────────────────────────────────────────
+(async () => {
+    try {
+        const rows = await fetchAll();
+
+        BUNDLES     = groupRows(rows);
+        BUNDLE_KEYS = [...BUNDLES.keys()].sort();
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('last-updated').textContent =
+            `${BUNDLE_KEYS.length} bundles · ${new Date().toLocaleString()}`;
+
+        applyFilters();
+
+        document.getElementById('search').addEventListener('input', applyFilters);
+
+    } catch (err) {
+        document.getElementById('loading').style.display = 'none';
+        const el = document.getElementById('error-msg');
+        el.style.display = '';
+        el.textContent   = `Failed to load bundle data: ${err.message}`;
+        console.error(err);
+    }
+})();
+</script>
+</body>
+</html>
