@@ -42,7 +42,12 @@
             font-size: 13px; width: 320px; outline: none; }
         .toolbar input[type=search]:focus { border-color: var(--accent); }
         .toolbar input[type=search]::placeholder { color: var(--muted); }
-        .result-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+        .result-count { font-size: 12px; color: var(--muted); }
+        .dl-btn { background: var(--surface2); border: 1px solid var(--border);
+                  color: var(--muted); border-radius: 7px; padding: 7px 12px;
+                  font-size: 13px; cursor: pointer; transition: all .15s;
+                  white-space: nowrap; margin-left: auto; }
+        .dl-btn:hover { border-color: var(--accent); color: var(--text); }
 
         /* ── Main ── */
         main { padding: 22px 28px; }
@@ -127,6 +132,7 @@
     <input type="search" id="search"
            placeholder="Search by bundle code, name or component SKU…">
     <span id="result-count" class="result-count"></span>
+    <button class="dl-btn" id="dl-btn" onclick="downloadCSV()">⬇ Download CSV</button>
 </div>
 
 <div id="error-msg"></div>
@@ -171,6 +177,8 @@ const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
 let BUNDLES = new Map();
 // Ordered list of codes for stable rendering
 let BUNDLE_KEYS = [];
+// Currently visible filtered keys (used by CSV export)
+let _currentFiltered = [];
 
 // ── Fetch all rows ────────────────────────────────────────────
 async function fetchAll() {
@@ -226,8 +234,34 @@ function applyFilters() {
     renderTable(filtered);
 }
 
+// ── CSV download (flat: one row per component) ───────────────
+function downloadCSV() {
+    const cols = ['Bundle SKU Code','Bundle Name','Component SKU','Quantity'];
+    const rows = [cols];
+    for (const code of _currentFiltered) {
+        const b = BUNDLES.get(code);
+        for (const c of b.components) {
+            rows.push([code, b.name, c.sku, c.quantity]);
+        }
+    }
+    const csv = rows.map(r =>
+        r.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(',')
+    ).join('\r\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `bundle-mapping-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // ── Render ───────────────────────────────────────────────────
 function renderTable(keys) {
+    _currentFiltered = keys;
     document.getElementById('result-count').textContent =
         `${keys.length.toLocaleString()} bundle${keys.length !== 1 ? 's' : ''}`;
 

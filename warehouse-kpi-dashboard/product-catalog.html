@@ -49,7 +49,12 @@
         .chip.active { background: var(--accent); border-color: var(--accent);
                        color: #fff; font-weight: 600; }
         .chip:hover:not(.active) { border-color: var(--accent); color: var(--text); }
-        .result-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+        .result-count { font-size: 12px; color: var(--muted); }
+        .dl-btn { background: var(--surface2); border: 1px solid var(--border);
+                  color: var(--muted); border-radius: 7px; padding: 7px 12px;
+                  font-size: 13px; cursor: pointer; transition: all .15s;
+                  white-space: nowrap; margin-left: auto; }
+        .dl-btn:hover { border-color: var(--accent); color: var(--text); }
 
         /* ── Main ── */
         main { padding: 22px 28px; }
@@ -173,6 +178,7 @@
     </div>
 
     <span class="result-count" id="result-count"></span>
+    <button class="dl-btn" id="dl-btn" onclick="downloadCSV()">⬇ Download CSV</button>
 </div>
 
 <main>
@@ -220,6 +226,7 @@ let ALL = [];
 let _sort = { col: 'product_name', dir: 1 };
 let _missingFilter = new Set();
 let _statFilter = null; // null | 'active' | 'full' | 'gaps'
+let _currentSorted = []; // all filtered+sorted rows (used by CSV export — no pagination limit)
 
 // ── Fetch all rows with pagination ───────────────────────────
 async function fetchAll() {
@@ -284,11 +291,52 @@ function applyFilters() {
     renderTable(filtered);
 }
 
+// ── CSV download (all filtered rows, ignores 500-row display cap) ────────────
+function downloadCSV() {
+    const WMS_LABELS_EXPORT = {
+        in_goodcang:'AU-GoodCang', in_propack:'CA-Propack',
+        in_zenventory:'CN-LHS', in_activeants:'EU-ActiveAnts',
+        in_mintsoft:'UK-Mintsoft', in_novex:'US-Novex'
+    };
+    const headers = [
+        'SKU','Product Name','Variant Title','Status','Product Type','Vendor',
+        'Price (USD)','Weight','Weight Unit',
+        'Length (cm)','Width (cm)','Height (cm)',
+        'AU-GoodCang','CA-Propack','CN-LHS','EU-ActiveAnts','UK-Mintsoft','US-Novex'
+    ];
+    const rows = [headers].concat(_currentSorted.map(r => [
+        r.sku, r.product_name, r.variant_title, r.shopify_status,
+        r.product_type, r.vendor, r.price, r.weight, r.weight_unit,
+        r.item_length_cm, r.item_width_cm, r.item_height_cm,
+        r.in_goodcang ? 'yes' : 'no',
+        r.in_propack  ? 'yes' : 'no',
+        r.in_zenventory ? 'yes' : 'no',
+        r.in_activeants ? 'yes' : 'no',
+        r.in_mintsoft   ? 'yes' : 'no',
+        r.in_novex      ? 'yes' : 'no',
+    ]));
+
+    const csv = rows.map(r =>
+        r.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(',')
+    ).join('\r\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `product-catalog-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // ── Render ───────────────────────────────────────────────────
 function renderTable(data) {
     document.getElementById('result-count').textContent = `${data.length.toLocaleString()} SKUs`;
 
     const sorted = sortedData(data);
+    _currentSorted = sorted; // snapshot for CSV (all rows, not just visible 500)
     const PAGE   = 500;
     const rows   = sorted.slice(0, PAGE);
 
