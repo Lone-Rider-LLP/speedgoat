@@ -191,7 +191,7 @@
                 <thead>
                     <tr>
                         <th data-col="sku">SKU <span class="sort-arrow">↕</span></th>
-                        <th data-col="product_name">Product <span class="sort-arrow">↕</span></th>
+                        <th data-col="product_label_name">Product Label Name <span class="sort-arrow">↕</span></th>
                         <th data-col="variant_title">Variant <span class="sort-arrow">↕</span></th>
                         <th data-col="shopify_status">Status <span class="sort-arrow">↕</span></th>
                         <th data-col="price" class="price">Price <span class="sort-arrow">↕</span></th>
@@ -223,7 +223,7 @@ const WMS_LABELS = { in_goodcang:'AU-GoodCang', in_propack:'CA-Propack',
                      in_mintsoft:'UK-Mintsoft', in_novex:'US-Novex' };
 
 let ALL = [];
-let _sort = { col: 'product_name', dir: 1 };
+let _sort = { col: 'product_label_name', dir: 1 };
 let _missingFilter = new Set();
 let _statFilter = null; // null | 'active' | 'full' | 'gaps'
 let _currentSorted = []; // all filtered+sorted rows (used by CSV export — no pagination limit)
@@ -231,7 +231,7 @@ let _currentSorted = []; // all filtered+sorted rows (used by CSV export — no 
 // ── Fetch all rows with pagination ───────────────────────────
 async function fetchAll() {
     const PAGE = 1000;
-    const select = 'sku,product_name,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,item_length_cm,item_width_cm,item_height_cm,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
+    const select = 'sku,product_name,product_label_name,variant_type,segmentation,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,item_length_cm,item_width_cm,item_height_cm,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,master_carton_weight_kg,master_carton_quantity,mpn,procurement_status,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
     let rows = [], offset = 0;
     while (true) {
         const u = new URL(`${URL_BASE}/rest/v1/vw_product_sku_coverage`);
@@ -256,7 +256,10 @@ function sortedData(data) {
     return [...data].sort((a, b) => {
         let av, bv;
         if (_sort.col === 'coverage') { av = covCount(a); bv = covCount(b); }
-        else if (_sort.col === 'price' || _sort.col === 'weight') {
+        else if (_sort.col === 'product_label_name') {
+            av = (a.product_label_name || a.product_name || '').toLowerCase();
+            bv = (b.product_label_name || b.product_name || '').toLowerCase();
+        } else if (_sort.col === 'price' || _sort.col === 'weight') {
             av = parseFloat(a[_sort.col]) || 0;
             bv = parseFloat(b[_sort.col]) || 0;
         } else {
@@ -277,7 +280,8 @@ function applyFilters() {
 
     const filtered = ALL.filter(r => {
         if (r.sku?.toUpperCase().startsWith('BUNDLE')) return false; // virtual SKUs — excluded
-        if (q && !r.sku?.toLowerCase().includes(q) && !r.product_name?.toLowerCase().includes(q)) return false;
+        const pname = (r.product_label_name || r.product_name || '').toLowerCase();
+        if (q && !r.sku?.toLowerCase().includes(q) && !pname.includes(q)) return false;
         if (status && r.shopify_status !== status) return false;
         if (type && r.product_type !== type) return false;
         // "Missing from" chips: show rows NOT in the selected warehouses
@@ -300,17 +304,25 @@ function downloadCSV() {
         in_mintsoft:'UK-Mintsoft', in_novex:'US-Novex'
     };
     const headers = [
-        'SKU','Product Name','Variant Title','Status','Product Type','Vendor',
-        'Price (USD)','Weight','Weight Unit',
+        'SKU','Product Label Name','Variant Title','Variant Type','Segmentation',
+        'Status','Product Type','Vendor','Price (USD)','Weight','Weight Unit',
         'Length (cm)','Width (cm)','Height (cm)',
+        'Carton L (cm)','Carton W (cm)','Carton H (cm)','Carton Weight (kg)','Carton Qty',
+        'MPN','Procurement Status',
         'AU-GoodCang','CA-Propack','CN-LHS','EU-ActiveAnts','UK-Mintsoft','US-Novex'
     ];
     const rows = [headers].concat(_currentSorted.map(r => [
-        r.sku, r.product_name, r.variant_title, r.shopify_status,
-        r.product_type, r.vendor, r.price, r.weight, r.weight_unit,
+        r.sku,
+        r.product_label_name || r.product_name,
+        r.variant_title, r.variant_type, r.segmentation,
+        r.shopify_status, r.product_type, r.vendor,
+        r.price, r.weight, r.weight_unit,
         r.item_length_cm, r.item_width_cm, r.item_height_cm,
-        r.in_goodcang ? 'yes' : 'no',
-        r.in_propack  ? 'yes' : 'no',
+        r.master_carton_length_cm, r.master_carton_width_cm, r.master_carton_height_cm,
+        r.master_carton_weight_kg, r.master_carton_quantity,
+        r.mpn, r.procurement_status,
+        r.in_goodcang   ? 'yes' : 'no',
+        r.in_propack    ? 'yes' : 'no',
         r.in_zenventory ? 'yes' : 'no',
         r.in_activeants ? 'yes' : 'no',
         r.in_mintsoft   ? 'yes' : 'no',
@@ -355,9 +367,10 @@ function renderTable(data) {
         const fmt = v => v != null ? parseFloat(v).toFixed(1) : null;
         const l = fmt(r.item_length_cm), w = fmt(r.item_width_cm), h = fmt(r.item_height_cm);
         const dims = (l && w && h) ? `${l} × ${w} × ${h}` : '—';
+        const displayName = r.product_label_name || r.product_name || '';
         return `<tr>
             <td class="sku">${r.sku || '—'}</td>
-            <td class="name" title="${r.product_name || ''}">${truncate(r.product_name, 45)}</td>
+            <td class="name" title="${displayName}">${truncate(displayName, 45)}</td>
             <td class="variant">${r.variant_title && r.variant_title !== 'Default Title' ? r.variant_title : '—'}</td>
             <td><span class="badge ${r.shopify_status}">${r.shopify_status || '—'}</span></td>
             <td class="price">${pr}</td>
