@@ -187,6 +187,18 @@
         <option value="">All product types</option>
     </select>
 
+    <select id="procurement-filter">
+        <option value="">All procurement statuses</option>
+    </select>
+
+    <select id="segmentation-filter">
+        <option value="">All segmentations</option>
+    </select>
+
+    <select id="variant-type-filter">
+        <option value="">All variant types</option>
+    </select>
+
     <div class="chip-row" id="wms-chips">
         <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing from:</span>
         <span class="chip" data-wms="in_goodcang">AU-GoodCang</span>
@@ -327,16 +339,22 @@ function sortedData(data) {
 
 // ── Filter ───────────────────────────────────────────────────
 function applyFilters() {
-    const q       = document.getElementById('search').value.trim().toLowerCase();
-    const status  = document.getElementById('status-filter').value;
-    const type    = document.getElementById('type-filter').value;
+    const q           = document.getElementById('search').value.trim().toLowerCase();
+    const status      = document.getElementById('status-filter').value;
+    const type        = document.getElementById('type-filter').value;
+    const procurement = document.getElementById('procurement-filter').value;
+    const segmentation= document.getElementById('segmentation-filter').value;
+    const variantType = document.getElementById('variant-type-filter').value;
 
     const filtered = ALL.filter(r => {
         if (r.sku?.toUpperCase().startsWith('BUNDLE')) return false; // virtual SKUs — excluded
         const pname = (r.product_label_name || r.product_name || '').toLowerCase();
         if (q && !r.sku?.toLowerCase().includes(q) && !pname.includes(q)) return false;
-        if (status && r.shopify_status !== status) return false;
-        if (type && r.product_type !== type) return false;
+        if (status      && r.shopify_status       !== status)      return false;
+        if (type        && r.product_type          !== type)        return false;
+        if (procurement && r.procurement_status    !== procurement) return false;
+        if (segmentation&& r.segmentation          !== segmentation)return false;
+        if (variantType && r.variant_type          !== variantType) return false;
         // "Missing from" chips: show rows NOT in the selected warehouses
         for (const f of _missingFilter) { if (r[f]) return false; }
         // Stat chip filters
@@ -481,11 +499,17 @@ function renderSummary() {
     }).join('');
 }
 
-// ── Populate product type dropdown ───────────────────────────
+// ── Populate filter dropdowns from live data ─────────────────
 function populateFilters() {
-    const types = [...new Set(ALL.map(r => r.product_type).filter(Boolean))].sort();
-    const sel = document.getElementById('type-filter');
-    types.forEach(t => { const o = document.createElement('option'); o.value = t; o.text = t; sel.add(o); });
+    const fill = (id, values) => {
+        const sel = document.getElementById(id);
+        [...new Set(values.filter(Boolean))].sort()
+            .forEach(v => { const o = document.createElement('option'); o.value = v; o.text = v; sel.add(o); });
+    };
+    fill('type-filter',         ALL.map(r => r.product_type));
+    fill('procurement-filter',  ALL.map(r => r.procurement_status));
+    fill('segmentation-filter', ALL.map(r => r.segmentation));
+    fill('variant-type-filter', ALL.map(r => r.variant_type));
 }
 
 // ── Init ─────────────────────────────────────────────────────
@@ -512,6 +536,9 @@ async function init() {
 document.getElementById('search').addEventListener('input', applyFilters);
 document.getElementById('status-filter').addEventListener('change', applyFilters);
 document.getElementById('type-filter').addEventListener('change', applyFilters);
+document.getElementById('procurement-filter').addEventListener('change', applyFilters);
+document.getElementById('segmentation-filter').addEventListener('change', applyFilters);
+document.getElementById('variant-type-filter').addEventListener('change', applyFilters);
 
 // Stat chip click (event delegation — chips are rendered dynamically)
 document.getElementById('summary-row').addEventListener('click', e => {
