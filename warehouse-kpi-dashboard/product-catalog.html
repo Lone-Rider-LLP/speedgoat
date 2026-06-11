@@ -171,7 +171,7 @@
         .empty { padding: 48px; text-align: center; color: var(--muted); font-size: 13px; }
 
         /* ── Summary chips ── */
-        .summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+        .summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
         .stat-chip { background: var(--surface); border: 1px solid var(--border);
                      border-radius: 8px; padding: 10px 16px; font-size: 12px; color: var(--muted);
                      cursor: pointer; transition: all .15s; user-select: none; }
@@ -180,6 +180,32 @@
         .stat-chip:hover:not(.active) { border-color: var(--accent); color: var(--text); }
         .stat-chip.active { border-color: var(--accent); background: rgba(249,115,22,.1); color: var(--text); }
         .stat-chip.active strong { color: var(--accent); }
+        .stat-chip.danger { border-color: rgba(239,68,68,.4); }
+        .stat-chip.danger strong { color: #ef4444; }
+        .stat-chip.danger:hover { border-color: #ef4444; }
+
+        /* ── Warehouse row ── */
+        .wh-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .wh-stat { background: var(--surface); border: 1px solid var(--border);
+                   border-left: 3px solid var(--accent); border-radius: 8px;
+                   padding: 8px 14px; font-size: 11px; color: var(--muted);
+                   cursor: pointer; transition: all .15s; user-select: none; min-width: 76px; }
+        .wh-stat strong { display: block; font-size: 17px; font-weight: 700;
+                          margin-bottom: 1px; }
+        .wh-stat:hover { color: var(--text); opacity: .9; }
+        .wh-stat.filtered { background: rgba(249,115,22,.07); }
+
+        /* ── Carton completeness bar ── */
+        .carton-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+                      background: var(--surface); border: 1px solid var(--border);
+                      border-radius: 8px; padding: 10px 16px; font-size: 12px; }
+        .carton-bar-label { color: var(--muted); white-space: nowrap; }
+        .carton-bar-count { color: var(--text); white-space: nowrap; font-weight: 600;
+                            font-variant-numeric: tabular-nums; }
+        .carton-progress { flex: 1; height: 6px; background: var(--border);
+                           border-radius: 3px; min-width: 80px; }
+        .carton-progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+        .carton-pct { font-weight: 700; white-space: nowrap; min-width: 38px; text-align: right; }
 
         /* ── Column selector panel ── */
         .toolbar-right { margin-left: auto; display: flex; gap: 8px;
@@ -334,6 +360,8 @@
     <div id="loading"><div class="spinner"></div><span>Loading product catalog…</span></div>
     <div id="content" style="display:none">
         <div class="summary-row" id="summary-row"></div>
+        <div class="wh-row" id="wh-row"></div>
+        <div class="carton-bar" id="carton-bar"></div>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -456,12 +484,14 @@ function applyFilters() {
         // Stat chip filters
         if (_statFilter === 'active' && r.shopify_status !== 'active') return false;
         if (_statFilter === 'full'   && covCount(r) !== 6) return false;
-        if (_statFilter === 'gaps'   && covCount(r) >= 6) return false;
+        if (_statFilter === 'gaps'   && (covCount(r) === 0 || covCount(r) >= 6)) return false;
+        if (_statFilter === 'zero'   && (r.shopify_status !== 'active' || covCount(r) !== 0)) return false;
         return true;
     });
 
     document.getElementById('clear-btn').style.display = hasActiveFilters() ? '' : 'none';
     renderTable(filtered);
+    encodeFiltersToURL();
 }
 
 // ── CSV download (all filtered rows, ignores 500-row display cap) ────────────
@@ -587,25 +617,67 @@ function truncate(s, n) {
 }
 
 // ── Summary stats ────────────────────────────────────────────
-function renderSummary() {
-    const total   = ALL.length;
-    const active  = ALL.filter(r => r.shopify_status === 'active').length;
-    const full    = ALL.filter(r => covCount(r) === 6).length;
-    const missing = ALL.filter(r => covCount(r) < 6).length;
+const WMS_INFO = [
+    { f: 'in_goodcang',   label: 'AU-GoodCang',   short: 'AU', color: '#f97316' },
+    { f: 'in_propack',    label: 'CA-Propack',    short: 'CA', color: '#a855f7' },
+    { f: 'in_zenventory', label: 'CN-LHS',        short: 'CN', color: '#ef4444' },
+    { f: 'in_activeants', label: 'EU-ActiveAnts', short: 'EU', color: '#3b82f6' },
+    { f: 'in_mintsoft',   label: 'UK-Mintsoft',   short: 'UK', color: '#ec4899' },
+    { f: 'in_novex',      label: 'US-Novex',      short: 'US', color: '#14b8a6' },
+];
 
+function renderSummary() {
+    const nb     = ALL.filter(r => !r.sku?.toUpperCase().startsWith('BUNDLE'));
+    const active = nb.filter(r => r.shopify_status === 'active');
+    const total  = nb.length;
+    const full   = nb.filter(r => covCount(r) === 6).length;
+    const gaps   = nb.filter(r => covCount(r) > 0 && covCount(r) < 6).length;
+    const zero   = active.filter(r => covCount(r) === 0).length;
+
+    // ── Stat chips ──
     const stats = [
-        { label: 'Total SKUs',    value: total.toLocaleString(),   stat: 'all' },
-        { label: 'Active',        value: active.toLocaleString(),  stat: 'active' },
-        { label: 'Full coverage', value: full.toLocaleString(),    stat: 'full' },
-        { label: 'Coverage gaps', value: missing.toLocaleString(), stat: 'gaps' },
+        { label: 'Total SKUs',    value: total,          stat: 'all'    },
+        { label: 'Active',        value: active.length,  stat: 'active' },
+        { label: 'Full coverage', value: full,           stat: 'full'   },
+        { label: 'Coverage gaps', value: gaps,           stat: 'gaps'   },
+        { label: 'No coverage',   value: zero,           stat: 'zero',   danger: zero > 0 },
     ];
-    // 'all' chip is active when no stat filter is set
     document.getElementById('summary-row').innerHTML = stats.map(s => {
-        const isActive = s.stat === 'all' ? _statFilter === null : _statFilter === s.stat;
-        return `<div class="stat-chip${isActive ? ' active' : ''}" data-stat="${s.stat}">
-            <strong>${s.value}</strong>${s.label}
+        const isActive    = s.stat === 'all' ? _statFilter === null : _statFilter === s.stat;
+        const dangerClass = s.danger && !isActive ? ' danger' : '';
+        return `<div class="stat-chip${isActive ? ' active' : ''}${dangerClass}" data-stat="${s.stat}"
+                    title="${s.stat === 'zero' ? 'Active SKUs not in any warehouse' : ''}">
+            <strong>${s.value.toLocaleString()}</strong>${s.label}
         </div>`;
     }).join('');
+
+    // ── Warehouse row ──
+    document.getElementById('wh-row').innerHTML = WMS_INFO.map(w => {
+        const count    = active.filter(r => r[w.f]).length;
+        const pct      = active.length > 0 ? Math.round(count / active.length * 100) : 0;
+        const filtered = _missingFilter.has(w.f);
+        return `<div class="wh-stat${filtered ? ' filtered' : ''}"
+                    style="border-left-color:${w.color}"
+                    onclick="document.querySelector('.chip[data-wms=\\'${w.f}\\']').click()"
+                    title="${count} active SKUs in ${w.label} (${pct}% of active)\nClick to filter SKUs missing from ${w.short}">
+            <strong style="color:${w.color}">${count.toLocaleString()}</strong>${w.label}
+        </div>`;
+    }).join('');
+
+    // ── Carton completeness bar ──
+    const cartonOk  = active.filter(r =>
+        r.master_carton_length_cm != null && r.master_carton_width_cm != null &&
+        r.master_carton_height_cm != null && r.master_carton_weight_kg != null).length;
+    const pct   = active.length > 0 ? Math.round(cartonOk / active.length * 100) : 0;
+    const color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#eab308' : '#ef4444';
+    document.getElementById('carton-bar').innerHTML = `
+        <span class="carton-bar-label">Carton data completeness</span>
+        <span class="carton-bar-count">${cartonOk.toLocaleString()} / ${active.length.toLocaleString()} active SKUs</span>
+        <div class="carton-progress">
+            <div class="carton-progress-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="carton-pct" style="color:${color}">${pct}%</span>
+    `;
 }
 
 // ── Clear filters ────────────────────────────────────────────
@@ -724,6 +796,63 @@ function populateFilters() {
     });
 }
 
+// ── URL state ─────────────────────────────────────────────────
+function encodeFiltersToURL() {
+    const params = new URLSearchParams();
+    const q = document.getElementById('search').value.trim();
+    if (q) params.set('q', q);
+    Object.keys(_msel).forEach(id => {
+        const vals = [..._msel[id].set];
+        if (vals.length) params.set(id, vals.join(','));
+    });
+    if (_missingFilter.size)     params.set('wmsmissing',  [..._missingFilter].join(','));
+    if (_missingDataFilter.size) params.set('datamissing', [..._missingDataFilter].join(','));
+    if (_statFilter)             params.set('stat', _statFilter);
+    const str = params.toString();
+    history.replaceState(null, '', str ? '?' + str : location.pathname);
+}
+
+function applyFiltersFromURL() {
+    const params = new URLSearchParams(location.search);
+    if (!params.toString()) return;
+
+    const q = params.get('q');
+    if (q) document.getElementById('search').value = q;
+
+    Object.keys(_msel).forEach(id => {
+        const val = params.get(id);
+        if (!val) return;
+        const values = val.split(',');
+        const found  = [];
+        values.forEach(v => {
+            const cb = document.querySelector(`#${id}-panel input[type=checkbox][value="${CSS.escape(v)}"]`);
+            if (cb) { cb.checked = true; found.push(v); }
+        });
+        if (found.length) {
+            _msel[id].set = new Set(found);
+            const lbl = document.getElementById(id + '-label');
+            const btn = document.getElementById(id + '-btn');
+            lbl.textContent = found.length <= 2 ? found.join(' · ') : `${found.length} selected`;
+            btn.classList.add('active');
+        }
+    });
+
+    const wmsmissing = params.get('wmsmissing');
+    if (wmsmissing) wmsmissing.split(',').forEach(f => {
+        const chip = document.querySelector(`.chip[data-wms="${f}"]`);
+        if (chip) { _missingFilter.add(f); chip.classList.add('active'); }
+    });
+
+    const datamissing = params.get('datamissing');
+    if (datamissing) datamissing.split(',').forEach(f => {
+        const chip = document.querySelector(`.chip[data-missing="${f}"]`);
+        if (chip) { _missingDataFilter.add(f); chip.classList.add('active'); }
+    });
+
+    const stat = params.get('stat');
+    if (stat) _statFilter = stat;
+}
+
 // ── Init ─────────────────────────────────────────────────────
 async function init() {
     try {
@@ -733,6 +862,7 @@ async function init() {
 
         populateFilters();
         updateMissingCounts();
+        applyFiltersFromURL();   // restore filter state from URL (no-op if no params)
         renderSummary();
         applyFilters();
 
@@ -775,6 +905,7 @@ document.querySelectorAll('.chip[data-wms]').forEach(chip => {
         const f = chip.dataset.wms;
         if (_missingFilter.has(f)) { _missingFilter.delete(f); chip.classList.remove('active'); }
         else                       { _missingFilter.add(f);    chip.classList.add('active'); }
+        renderSummary(); // refresh warehouse row active state
         applyFilters();
     });
 });
