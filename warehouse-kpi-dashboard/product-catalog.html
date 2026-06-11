@@ -265,6 +265,17 @@
             <div class="col-panel-divider"></div>
             <div class="col-panel-section">WMS Coverage</div>
             <label class="col-check"><input type="checkbox" data-col="cc-wms" checked> All warehouses</label>
+            <div class="col-panel-divider"></div>
+            <div style="padding:8px 14px">
+                <button onclick="resetColumns()" id="reset-cols-btn"
+                    style="width:100%;background:none;border:1px solid var(--border);color:var(--muted);
+                           border-radius:6px;padding:5px 0;font-size:12px;cursor:pointer;
+                           transition:all .15s;display:none"
+                    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+                    onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+                    ↺ Reset to defaults
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -659,17 +670,38 @@ document.querySelectorAll('thead th[data-col]').forEach(th => {
 });
 
 // ── Column visibility ────────────────────────────────────────
-// Reads checked state from panel checkboxes and writes CSS rules into
-// the <style id="col-vis"> tag to hide/show entire columns at once.
+// Default checked state for each column checkbox
+const _COL_DEFAULTS = {
+    'cc-variant_title': true,  'cc-shopify_status': true, 'cc-price': true,
+    'cc-weight': true,         'cc-item_dims': true,       'cc-wms': true,
+    'cc-variant_type': false,  'cc-segmentation': false,   'cc-product_type': false,
+    'cc-mpn': false,           'cc-procurement_status': false,
+    'cc-carton_dims': false,   'cc-carton_weight': false,  'cc-carton_qty': false,
+};
+
 function applyColVisibility() {
     const style  = document.getElementById('col-vis');
     const hidden = [];
+    let nonDefault = 0;
     document.querySelectorAll('#col-panel input[type=checkbox]').forEach(cb => {
         if (!cb.checked) hidden.push(cb.dataset.col);
+        if (cb.checked !== (_COL_DEFAULTS[cb.dataset.col] ?? true)) nonDefault++;
     });
-    style.textContent = hidden.map(cls =>
-        `.${cls} { display: none; }`
-    ).join('\n');
+    style.textContent = hidden.map(cls => `.${cls} { display: none; }`).join('\n');
+
+    // Update button label and reset button visibility
+    const btn = document.getElementById('col-toggle-btn');
+    btn.textContent = nonDefault ? `⚙ Columns · ${nonDefault}` : '⚙ Columns';
+    btn.style.color  = nonDefault ? 'var(--accent)' : '';
+    btn.style.borderColor = nonDefault ? 'var(--accent)' : '';
+    document.getElementById('reset-cols-btn').style.display = nonDefault ? '' : 'none';
+}
+
+function resetColumns() {
+    document.querySelectorAll('#col-panel input[type=checkbox]').forEach(cb => {
+        cb.checked = _COL_DEFAULTS[cb.dataset.col] ?? true;
+    });
+    applyColVisibility();
 }
 
 function toggleColPanel() {
