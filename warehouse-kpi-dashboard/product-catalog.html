@@ -36,11 +36,25 @@
             color: var(--text); border-radius: 7px; padding: 7px 12px;
             font-size: 13px; width: 260px; outline: none; }
         .toolbar input[type=search]:focus { border-color: var(--accent); }
-        .toolbar select {
-            background: var(--surface2); border: 1px solid var(--border);
-            color: var(--text); border-radius: 7px; padding: 7px 12px;
-            font-size: 13px; cursor: pointer; outline: none; }
-        .toolbar select:focus { border-color: var(--accent); }
+        /* ── Multi-select dropdowns ── */
+        .msel-wrap { position: relative; }
+        .msel-btn { background: var(--surface2); border: 1px solid var(--border);
+                    color: var(--muted); border-radius: 7px; padding: 7px 12px;
+                    font-size: 13px; cursor: pointer; transition: all .15s;
+                    display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+        .msel-btn:hover { border-color: var(--accent); color: var(--text); }
+        .msel-btn.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+        .msel-arrow { font-size: 9px; opacity: .5; }
+        .msel-panel { position: absolute; top: calc(100% + 6px); left: 0;
+                      background: var(--surface2); border: 1px solid var(--border);
+                      border-radius: 10px; z-index: 300; min-width: 180px;
+                      box-shadow: 0 12px 40px rgba(0,0,0,.6);
+                      max-height: 260px; overflow-y: auto; padding: 4px 0; }
+        .msel-clear { width: 100%; background: none; border: none;
+                      border-bottom: 1px solid var(--border); color: var(--muted);
+                      font-size: 11px; padding: 6px 14px; cursor: pointer;
+                      text-align: left; transition: color .1s; }
+        .msel-clear:hover { color: var(--accent); }
         .chip-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; }
         .chip { background: var(--surface2); border: 1px solid var(--border);
                 border-radius: 20px; padding: 4px 12px; font-size: 12px;
@@ -205,28 +219,53 @@
 <div class="toolbar">
     <input type="search" id="search" placeholder="Search SKU or product name…">
 
-    <select id="status-filter">
-        <option value="">All statuses</option>
-        <option value="active">Active</option>
-        <option value="draft">Draft</option>
-        <option value="archived">Archived</option>
-    </select>
+    <div class="msel-wrap">
+        <button class="msel-btn" id="status-btn" onclick="toggleMsel('status')">
+            <span id="status-label">All statuses</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="status-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('status')">Clear</button>
+            <label class="col-check"><input type="checkbox" value="active"> Active</label>
+            <label class="col-check"><input type="checkbox" value="draft"> Draft</label>
+            <label class="col-check"><input type="checkbox" value="archived"> Archived</label>
+        </div>
+    </div>
 
-    <select id="type-filter">
-        <option value="">All product types</option>
-    </select>
+    <div class="msel-wrap">
+        <button class="msel-btn" id="type-btn" onclick="toggleMsel('type')">
+            <span id="type-label">All product types</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="type-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('type')">Clear</button>
+        </div>
+    </div>
 
-    <select id="procurement-filter">
-        <option value="">All procurement statuses</option>
-    </select>
+    <div class="msel-wrap">
+        <button class="msel-btn" id="procurement-btn" onclick="toggleMsel('procurement')">
+            <span id="procurement-label">All procurement statuses</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="procurement-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('procurement')">Clear</button>
+        </div>
+    </div>
 
-    <select id="segmentation-filter">
-        <option value="">All segmentations</option>
-    </select>
+    <div class="msel-wrap">
+        <button class="msel-btn" id="segmentation-btn" onclick="toggleMsel('segmentation')">
+            <span id="segmentation-label">All segmentations</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="segmentation-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('segmentation')">Clear</button>
+        </div>
+    </div>
 
-    <select id="variant-type-filter">
-        <option value="">All variant types</option>
-    </select>
+    <div class="msel-wrap">
+        <button class="msel-btn" id="varianttype-btn" onclick="toggleMsel('varianttype')">
+            <span id="varianttype-label">All variant types</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="varianttype-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('varianttype')">Clear</button>
+        </div>
+    </div>
 
     <button id="clear-btn" class="clear-btn" style="display:none" onclick="clearAllFilters()">× Clear filters</button>
     <span class="result-count" id="result-count"></span>
@@ -344,6 +383,13 @@ let _sort = { col: 'product_label_name', dir: 1 };
 let _missingFilter     = new Set(); // WMS "missing from" chips
 let _missingDataFilter = new Set(); // metafield completeness chips
 let _statFilter = null; // null | 'active' | 'full' | 'gaps'
+const _msel = {
+    status:       { set: new Set(), allLabel: 'All statuses',              field: 'shopify_status'    },
+    type:         { set: new Set(), allLabel: 'All product types',         field: 'product_type'       },
+    procurement:  { set: new Set(), allLabel: 'All procurement statuses',  field: 'procurement_status' },
+    segmentation: { set: new Set(), allLabel: 'All segmentations',         field: 'segmentation'       },
+    varianttype:  { set: new Set(), allLabel: 'All variant types',         field: 'variant_type'       },
+};
 let _currentSorted = []; // all filtered+sorted rows (used by CSV export — no pagination limit)
 
 // ── Fetch all rows with pagination ───────────────────────────
@@ -392,22 +438,15 @@ function sortedData(data) {
 
 // ── Filter ───────────────────────────────────────────────────
 function applyFilters() {
-    const q           = document.getElementById('search').value.trim().toLowerCase();
-    const status      = document.getElementById('status-filter').value;
-    const type        = document.getElementById('type-filter').value;
-    const procurement = document.getElementById('procurement-filter').value;
-    const segmentation= document.getElementById('segmentation-filter').value;
-    const variantType = document.getElementById('variant-type-filter').value;
+    const q = document.getElementById('search').value.trim().toLowerCase();
 
     const filtered = ALL.filter(r => {
         if (r.sku?.toUpperCase().startsWith('BUNDLE')) return false; // virtual SKUs — excluded
         const pname = (r.product_label_name || r.product_name || '').toLowerCase();
         if (q && !r.sku?.toLowerCase().includes(q) && !pname.includes(q)) return false;
-        if (status      && r.shopify_status       !== status)      return false;
-        if (type        && r.product_type          !== type)        return false;
-        if (procurement && r.procurement_status    !== procurement) return false;
-        if (segmentation&& r.segmentation          !== segmentation)return false;
-        if (variantType && r.variant_type          !== variantType) return false;
+        for (const cfg of Object.values(_msel)) {
+            if (cfg.set.size > 0 && !cfg.set.has(r[cfg.field])) return false;
+        }
         // "Missing from" WMS chips
         for (const f of _missingFilter) { if (r[f]) return false; }
         // "Missing data" chips — only show rows where that field is empty
@@ -572,19 +611,18 @@ function renderSummary() {
 // ── Clear filters ────────────────────────────────────────────
 function hasActiveFilters() {
     return document.getElementById('search').value.trim() ||
-           document.getElementById('status-filter').value ||
-           document.getElementById('type-filter').value ||
-           document.getElementById('procurement-filter').value ||
-           document.getElementById('segmentation-filter').value ||
-           document.getElementById('variant-type-filter').value ||
+           Object.values(_msel).some(m => m.set.size > 0) ||
            _missingFilter.size > 0 || _missingDataFilter.size > 0 || _statFilter !== null;
 }
 
 function clearAllFilters() {
     document.getElementById('search').value = '';
-    ['status-filter','type-filter','procurement-filter',
-     'segmentation-filter','variant-type-filter'].forEach(id => {
-        document.getElementById(id).value = '';
+    Object.keys(_msel).forEach(id => {
+        document.getElementById(id + '-panel')
+            .querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+        document.getElementById(id + '-label').textContent = _msel[id].allLabel;
+        document.getElementById(id + '-btn').classList.remove('active');
+        _msel[id].set.clear();
     });
     _missingFilter.clear();
     _missingDataFilter.clear();
@@ -622,17 +660,68 @@ function updateMissingCounts() {
     });
 }
 
+// ── Multi-select helpers ─────────────────────────────────────
+function toggleMsel(id) {
+    const panel  = document.getElementById(id + '-panel');
+    const isOpen = panel.style.display !== 'none';
+    closeAllPanels();
+    if (!isOpen) panel.style.display = 'block';
+}
+
+function closeAllPanels() {
+    document.querySelectorAll('.msel-panel').forEach(p => p.style.display = 'none');
+    document.getElementById('col-panel').style.display = 'none';
+}
+
+function clearMsel(id) {
+    document.getElementById(id + '-panel')
+        .querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+    updateMselState(id);
+}
+
+function updateMselState(id) {
+    const cfg     = _msel[id];
+    const checked = [...document.getElementById(id + '-panel')
+        .querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+    cfg.set = new Set(checked);
+    const label = document.getElementById(id + '-label');
+    const btn   = document.getElementById(id + '-btn');
+    if (checked.length === 0) {
+        label.textContent = cfg.allLabel;
+        btn.classList.remove('active');
+    } else if (checked.length <= 2) {
+        label.textContent = checked.join(' · ');
+        btn.classList.add('active');
+    } else {
+        label.textContent = `${checked.length} selected`;
+        btn.classList.add('active');
+    }
+    applyFilters();
+}
+
 // ── Populate filter dropdowns from live data ─────────────────
 function populateFilters() {
     const fill = (id, values) => {
-        const sel = document.getElementById(id);
-        [...new Set(values.filter(Boolean))].sort()
-            .forEach(v => { const o = document.createElement('option'); o.value = v; o.text = v; sel.add(o); });
+        const panel = document.getElementById(id + '-panel');
+        [...new Set(values.filter(v => v != null && v !== ''))].sort().forEach(v => {
+            const lbl = document.createElement('label');
+            lbl.className = 'col-check';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox'; cb.value = v;
+            cb.addEventListener('change', () => updateMselState(id));
+            lbl.appendChild(cb);
+            lbl.append(' ' + v);
+            panel.appendChild(lbl);
+        });
     };
-    fill('type-filter',         ALL.map(r => r.product_type));
-    fill('procurement-filter',  ALL.map(r => r.procurement_status));
-    fill('segmentation-filter', ALL.map(r => r.segmentation));
-    fill('variant-type-filter', ALL.map(r => r.variant_type));
+    fill('type',         ALL.map(r => r.product_type));
+    fill('procurement',  ALL.map(r => r.procurement_status));
+    fill('segmentation', ALL.map(r => r.segmentation));
+    fill('varianttype',  ALL.map(r => r.variant_type));
+    // Status checkboxes are hardcoded in HTML — just wire listeners
+    document.querySelectorAll('#status-panel input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => updateMselState('status'));
+    });
 }
 
 // ── Init ─────────────────────────────────────────────────────
@@ -666,11 +755,6 @@ async function init() {
 
 // ── Event listeners ──────────────────────────────────────────
 document.getElementById('search').addEventListener('input', applyFilters);
-document.getElementById('status-filter').addEventListener('change', applyFilters);
-document.getElementById('type-filter').addEventListener('change', applyFilters);
-document.getElementById('procurement-filter').addEventListener('change', applyFilters);
-document.getElementById('segmentation-filter').addEventListener('change', applyFilters);
-document.getElementById('variant-type-filter').addEventListener('change', applyFilters);
 
 // Stat chip click (event delegation — chips are rendered dynamically)
 document.getElementById('summary-row').addEventListener('click', e => {
@@ -749,15 +833,16 @@ function resetColumns() {
 }
 
 function toggleColPanel() {
-    const panel = document.getElementById('col-panel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    const panel  = document.getElementById('col-panel');
+    const isOpen = panel.style.display !== 'none';
+    closeAllPanels();
+    if (!isOpen) panel.style.display = 'block';
 }
 
-// Close col panel when clicking outside it
+// Close all panels when clicking outside
 document.addEventListener('click', e => {
-    const wrap = document.querySelector('.toolbar-right');
-    if (wrap && !wrap.contains(e.target)) {
-        document.getElementById('col-panel').style.display = 'none';
+    if (!e.target.closest('.msel-wrap') && !e.target.closest('.toolbar-right')) {
+        closeAllPanels();
     }
 });
 
