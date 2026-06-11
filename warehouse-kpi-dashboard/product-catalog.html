@@ -41,7 +41,7 @@
             color: var(--text); border-radius: 7px; padding: 7px 12px;
             font-size: 13px; cursor: pointer; outline: none; }
         .toolbar select:focus { border-color: var(--accent); }
-        .chip-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .chip-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; }
         .chip { background: var(--surface2); border: 1px solid var(--border);
                 border-radius: 20px; padding: 4px 12px; font-size: 12px;
                 color: var(--muted); cursor: pointer; transition: all .15s;
@@ -228,16 +228,6 @@
         <option value="">All variant types</option>
     </select>
 
-    <div class="chip-row" id="wms-chips">
-        <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing from:</span>
-        <span class="chip" data-wms="in_goodcang">AU-GoodCang</span>
-        <span class="chip" data-wms="in_propack">CA-Propack</span>
-        <span class="chip" data-wms="in_zenventory">CN-LHS</span>
-        <span class="chip" data-wms="in_activeants">EU-ActiveAnts</span>
-        <span class="chip" data-wms="in_mintsoft">UK-Mintsoft</span>
-        <span class="chip" data-wms="in_novex">US-Novex</span>
-    </div>
-
     <button id="clear-btn" class="clear-btn" style="display:none" onclick="clearAllFilters()">× Clear filters</button>
     <span class="result-count" id="result-count"></span>
     <div class="toolbar-right">
@@ -277,6 +267,27 @@
                 </button>
             </div>
         </div>
+    </div>
+
+    <div class="chip-row" id="wms-chips">
+        <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing from:</span>
+        <span class="chip" data-wms="in_goodcang">AU-GoodCang</span>
+        <span class="chip" data-wms="in_propack">CA-Propack</span>
+        <span class="chip" data-wms="in_zenventory">CN-LHS</span>
+        <span class="chip" data-wms="in_activeants">EU-ActiveAnts</span>
+        <span class="chip" data-wms="in_mintsoft">UK-Mintsoft</span>
+        <span class="chip" data-wms="in_novex">US-Novex</span>
+    </div>
+
+    <div class="chip-row" id="missing-data-chips">
+        <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing data:</span>
+        <span class="chip" data-missing="product_label_name">Product Label Name</span>
+        <span class="chip" data-missing="item_length_cm">Item Dims</span>
+        <span class="chip" data-missing="master_carton_length_cm">Carton Dims</span>
+        <span class="chip" data-missing="procurement_status">Procurement Status</span>
+        <span class="chip" data-missing="variant_type">Variant Type</span>
+        <span class="chip" data-missing="segmentation">Segmentation</span>
+        <span class="chip" data-missing="mpn">MPN</span>
     </div>
 </div>
 
@@ -330,7 +341,8 @@ const WMS_LABELS = { in_goodcang:'AU-GoodCang', in_propack:'CA-Propack',
 
 let ALL = [];
 let _sort = { col: 'product_label_name', dir: 1 };
-let _missingFilter = new Set();
+let _missingFilter     = new Set(); // WMS "missing from" chips
+let _missingDataFilter = new Set(); // metafield completeness chips
 let _statFilter = null; // null | 'active' | 'full' | 'gaps'
 let _currentSorted = []; // all filtered+sorted rows (used by CSV export — no pagination limit)
 
@@ -396,8 +408,12 @@ function applyFilters() {
         if (procurement && r.procurement_status    !== procurement) return false;
         if (segmentation&& r.segmentation          !== segmentation)return false;
         if (variantType && r.variant_type          !== variantType) return false;
-        // "Missing from" chips: show rows NOT in the selected warehouses
+        // "Missing from" WMS chips
         for (const f of _missingFilter) { if (r[f]) return false; }
+        // "Missing data" chips — only show rows where that field is empty
+        for (const f of _missingDataFilter) {
+            if (r[f] != null && r[f] !== '') return false;
+        }
         // Stat chip filters
         if (_statFilter === 'active' && r.shopify_status !== 'active') return false;
         if (_statFilter === 'full'   && covCount(r) !== 6) return false;
@@ -557,7 +573,7 @@ function hasActiveFilters() {
            document.getElementById('procurement-filter').value ||
            document.getElementById('segmentation-filter').value ||
            document.getElementById('variant-type-filter').value ||
-           _missingFilter.size > 0 || _statFilter !== null;
+           _missingFilter.size > 0 || _missingDataFilter.size > 0 || _statFilter !== null;
 }
 
 function clearAllFilters() {
@@ -567,6 +583,7 @@ function clearAllFilters() {
         document.getElementById(id).value = '';
     });
     _missingFilter.clear();
+    _missingDataFilter.clear();
     document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
     _statFilter = null;
     renderSummary();
@@ -586,6 +603,19 @@ async function fetchLastSyncTime() {
         }
     } catch {}
     return null;
+}
+
+// ── Missing data chip counts ──────────────────────────────────
+function updateMissingCounts() {
+    const active = ALL.filter(r => !r.sku?.toUpperCase().startsWith('BUNDLE'));
+    document.querySelectorAll('.chip[data-missing]').forEach(chip => {
+        const field = chip.dataset.missing;
+        const base  = chip.dataset.base || chip.textContent;
+        chip.dataset.base = base; // store original label once
+        const count = active.filter(r => r[field] == null || r[field] === '').length;
+        chip.textContent = count > 0 ? `${base} (${count})` : base;
+        chip.title = `${count} SKUs missing ${base}`;
+    });
 }
 
 // ── Populate filter dropdowns from live data ─────────────────
@@ -609,6 +639,7 @@ async function init() {
         document.getElementById('content').style.display = '';
 
         populateFilters();
+        updateMissingCounts();
         renderSummary();
         applyFilters();
 
@@ -656,6 +687,15 @@ document.querySelectorAll('.chip[data-wms]').forEach(chip => {
         const f = chip.dataset.wms;
         if (_missingFilter.has(f)) { _missingFilter.delete(f); chip.classList.remove('active'); }
         else                       { _missingFilter.add(f);    chip.classList.add('active'); }
+        applyFilters();
+    });
+});
+
+document.querySelectorAll('.chip[data-missing]').forEach(chip => {
+    chip.addEventListener('click', () => {
+        const f = chip.dataset.missing;
+        if (_missingDataFilter.has(f)) { _missingDataFilter.delete(f); chip.classList.remove('active'); }
+        else                           { _missingDataFilter.add(f);    chip.classList.add('active'); }
         applyFilters();
     });
 });
