@@ -56,6 +56,17 @@
                   white-space: nowrap; }
         .dl-btn:hover { border-color: var(--accent); color: var(--text); }
 
+        /* ── Page nav ── */
+        .page-nav { display: flex; background: var(--surface);
+                    border-bottom: 1px solid var(--border); padding: 0 28px; }
+        .page-nav a { padding: 10px 16px; font-size: 13px; text-decoration: none;
+                      color: var(--muted); border-bottom: 2px solid transparent;
+                      margin-bottom: -1px; transition: color .15s, border-color .15s;
+                      white-space: nowrap; }
+        .page-nav a:hover  { color: var(--text); }
+        .page-nav a.active { color: var(--accent); border-bottom-color: var(--accent);
+                             font-weight: 600; }
+
         /* ── Main ── */
         main { padding: 22px 28px; }
 
@@ -157,21 +168,16 @@
 
 <header>
     <div class="hdr-left">
-        <div style="display:flex;gap:14px;margin-bottom:6px;align-items:center">
-            <a href="index.html" style="font-size:12px;color:var(--muted);text-decoration:none;
-               display:inline-flex;align-items:center;gap:5px;transition:color .15s"
-               onmouseover="this.style.color='var(--text)'"
-               onmouseout="this.style.color='var(--muted)'">← Warehouse KPIs</a>
-            <a href="bundle-mapping.html" style="font-size:12px;color:var(--muted);text-decoration:none;
-               display:inline-flex;align-items:center;gap:5px;transition:color .15s"
-               onmouseover="this.style.color='var(--text)'"
-               onmouseout="this.style.color='var(--muted)'">Bundle Mapping →</a>
-        </div>
         <h1>SpeedGoat — Product Catalog</h1>
         <p>Shopify SKUs × Warehouse coverage</p>
     </div>
     <div id="last-updated"></div>
 </header>
+<nav class="page-nav">
+    <a href="index.html">Warehouse KPIs</a>
+    <a href="product-catalog.html" class="active">Product Catalog</a>
+    <a href="bundle-mapping.html">Bundle Mapping</a>
+</nav>
 
 <div class="toolbar">
     <input type="search" id="search" placeholder="Search SKU or product name…">

@@ -24,10 +24,16 @@
                  padding: 14px 28px; display: flex; align-items: center;
                  justify-content: space-between; }
         .hdr-left { display: flex; flex-direction: column; gap: 4px; }
-        .back-link { font-size: 12px; color: var(--muted); text-decoration: none;
-                     display: inline-flex; align-items: center; gap: 4px;
-                     transition: color .15s; margin-bottom: 2px; }
-        .back-link:hover { color: var(--accent); }
+        /* ── Page nav ── */
+        .page-nav { display: flex; background: var(--surface);
+                    border-bottom: 1px solid var(--border); padding: 0 28px; }
+        .page-nav a { padding: 10px 16px; font-size: 13px; text-decoration: none;
+                      color: var(--muted); border-bottom: 2px solid transparent;
+                      margin-bottom: -1px; transition: color .15s, border-color .15s;
+                      white-space: nowrap; }
+        .page-nav a:hover  { color: var(--text); }
+        .page-nav a.active { color: var(--accent); border-bottom-color: var(--accent);
+                             font-weight: 600; }
         .hdr-left h1 { font-size: 18px; font-weight: 600; }
         .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
         #last-updated { font-size: 12px; color: var(--muted); }
@@ -121,12 +127,16 @@
 
 <header>
     <div class="hdr-left">
-        <a class="back-link" href="index.html">← Warehouse KPIs</a>
         <h1>Bundle Mapping</h1>
         <p>Bundle SKU codes and their component SKUs</p>
     </div>
     <span id="last-updated"></span>
 </header>
+<nav class="page-nav">
+    <a href="index.html">Warehouse KPIs</a>
+    <a href="product-catalog.html">Product Catalog</a>
+    <a href="bundle-mapping.html" class="active">Bundle Mapping</a>
+</nav>
 
 <div class="toolbar">
     <input type="search" id="search"
