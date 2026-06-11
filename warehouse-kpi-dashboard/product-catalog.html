@@ -493,7 +493,8 @@ function renderTable(data) {
     document.getElementById('tbody').innerHTML = rows.map(r => {
         const wt = r.weight ? `${parseFloat(r.weight).toFixed(2)} ${r.weight_unit || ''}`.trim() : '—';
         const pr = r.price  ? `$${parseFloat(r.price).toFixed(2)}` : '—';
-        const displayName = r.product_label_name || r.product_name || '';
+        const hasLabelName = r.product_label_name != null && r.product_label_name !== '';
+        const displayName = hasLabelName ? r.product_label_name : (r.product_name || '');
         const fmtNum = (v, d=1) => v != null ? parseFloat(v).toFixed(d) : null;
         const cl  = fmtNum(r.item_length_cm), cw = fmtNum(r.item_width_cm), ch = fmtNum(r.item_height_cm);
         const dims = (cl && cw && ch) ? `${cl} × ${cw} × ${ch}` : '—';
@@ -508,7 +509,10 @@ function renderTable(data) {
             <td class="sku-sticky">${shopifyUrl
                 ? `<a class="sku-link" href="${shopifyUrl}" target="_blank" title="Open in Shopify">${r.sku || '—'}</a>`
                 : `<span class="sku">${r.sku || '—'}</span>`}</td>
-            <td class="name" title="${displayName}">${truncate(displayName, 45)}</td>
+            <td class="name" title="${hasLabelName ? displayName : displayName + ' (no label name)'}">${hasLabelName
+                ? truncate(displayName, 45)
+                : `<span style="color:var(--muted);font-style:italic">${truncate(displayName, 45)}</span>`
+            }</td>
             <td class="variant cc-variant_title">${r.variant_title && r.variant_title !== 'Default Title' ? r.variant_title : '—'}</td>
             <td class="variant cc-variant_type">${r.variant_type || '—'}</td>
             <td class="variant cc-segmentation">${r.segmentation || '—'}</td>
