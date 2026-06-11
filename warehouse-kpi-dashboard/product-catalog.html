@@ -413,6 +413,7 @@ let _sort = { col: 'product_label_name', dir: 1 };
 const VIRTUAL_PREFIXES = ['BUNDLE', 'RANDOM-'];
 const isVirtualSKU = sku => VIRTUAL_PREFIXES.some(p => sku?.toUpperCase().startsWith(p));
 let _missingFilter     = new Set(); // WMS "missing from" chips
+let _presentFilter     = new Set(); // WMS "present in" filter (warehouse cards)
 let _missingDataFilter = new Set(); // metafield completeness chips
 let _statFilter = null; // null | 'active' | 'full' | 'gaps'
 const _msel = {
@@ -479,6 +480,8 @@ function applyFilters() {
         for (const cfg of Object.values(_msel)) {
             if (cfg.set.size > 0 && !cfg.set.has(r[cfg.field])) return false;
         }
+        // "Present in" warehouse cards — only show SKUs in all selected warehouses
+        for (const f of _presentFilter) { if (!r[f]) return false; }
         // "Missing from" WMS chips
         for (const f of _missingFilter) { if (r[f]) return false; }
         // "Missing data" chips — only show rows where that field is empty
@@ -659,11 +662,11 @@ function renderSummary() {
     document.getElementById('wh-row').innerHTML = WMS_INFO.map(w => {
         const count    = active.filter(r => r[w.f]).length;
         const pct      = active.length > 0 ? Math.round(count / active.length * 100) : 0;
-        const filtered = _missingFilter.has(w.f);
+        const filtered = _presentFilter.has(w.f);
         return `<div class="wh-stat${filtered ? ' filtered' : ''}"
                     style="border-left-color:${w.color}"
-                    onclick="document.querySelector('.chip[data-wms=\\'${w.f}\\']').click()"
-                    title="${count} active SKUs in ${w.label} (${pct}% of active)\nClick to filter SKUs missing from ${w.short}">
+                    onclick="togglePresentFilter('${w.f}')"
+                    title="${count} active SKUs in ${w.label} (${pct}% of active)\nClick to show only SKUs in ${w.short}">
             <strong style="color:${w.color}">${count.toLocaleString()}</strong>${w.label}
         </div>`;
     }).join('');
@@ -688,7 +691,8 @@ function renderSummary() {
 function hasActiveFilters() {
     return document.getElementById('search').value.trim() ||
            Object.values(_msel).some(m => m.set.size > 0) ||
-           _missingFilter.size > 0 || _missingDataFilter.size > 0 || _statFilter !== null;
+           _missingFilter.size > 0 || _presentFilter.size > 0 ||
+           _missingDataFilter.size > 0 || _statFilter !== null;
 }
 
 function clearAllFilters() {
@@ -701,6 +705,7 @@ function clearAllFilters() {
         _msel[id].set.clear();
     });
     _missingFilter.clear();
+    _presentFilter.clear();
     _missingDataFilter.clear();
     document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
     _statFilter = null;
@@ -734,6 +739,14 @@ function updateMissingCounts() {
         chip.textContent = count > 0 ? `${base} (${count})` : base;
         chip.title = `${count} SKUs missing ${base}`;
     });
+}
+
+// ── Warehouse card "present in" filter ───────────────────────
+function togglePresentFilter(field) {
+    if (_presentFilter.has(field)) { _presentFilter.delete(field); }
+    else                           { _presentFilter.add(field);    }
+    renderSummary(); // refresh card active states
+    applyFilters();
 }
 
 // ── Multi-select helpers ─────────────────────────────────────
@@ -809,6 +822,7 @@ function encodeFiltersToURL() {
         const vals = [..._msel[id].set];
         if (vals.length) params.set(id, vals.join(','));
     });
+    if (_presentFilter.size)     params.set('wmspresent',  [..._presentFilter].join(','));
     if (_missingFilter.size)     params.set('wmsmissing',  [..._missingFilter].join(','));
     if (_missingDataFilter.size) params.set('datamissing', [..._missingDataFilter].join(','));
     if (_statFilter)             params.set('stat', _statFilter);
@@ -840,6 +854,9 @@ function applyFiltersFromURL() {
             btn.classList.add('active');
         }
     });
+
+    const wmspresent = params.get('wmspresent');
+    if (wmspresent) wmspresent.split(',').forEach(f => _presentFilter.add(f));
 
     const wmsmissing = params.get('wmsmissing');
     if (wmsmissing) wmsmissing.split(',').forEach(f => {
@@ -909,7 +926,6 @@ document.querySelectorAll('.chip[data-wms]').forEach(chip => {
         const f = chip.dataset.wms;
         if (_missingFilter.has(f)) { _missingFilter.delete(f); chip.classList.remove('active'); }
         else                       { _missingFilter.add(f);    chip.classList.add('active'); }
-        renderSummary(); // refresh warehouse row active state
         applyFilters();
     });
 });
