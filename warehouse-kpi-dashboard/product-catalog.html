@@ -111,6 +111,29 @@
         .badge.active   { background: rgba(34,197,94,.15);  color: #22c55e; }
         .badge.draft    { background: rgba(234,179,8,.15);  color: #eab308; }
         .badge.archived { background: rgba(100,116,139,.15);color: #64748b; }
+        /* Procurement status badges */
+        .badge.proc-ongoing      { background: rgba(34,197,94,.15);  color: #22c55e; }
+        .badge.proc-npl          { background: rgba(234,179,8,.15);  color: #eab308; }
+        .badge.proc-discontinued { background: rgba(100,116,139,.15);color: #64748b; }
+        .badge.proc-other        { background: rgba(148,163,184,.1); color: #94a3b8; }
+
+        /* ── Sticky first column ── */
+        th.sku-sticky { position: sticky; left: 0; z-index: 15 !important;
+                        background: var(--surface); }
+        td.sku-sticky { position: sticky; left: 0; z-index: 4;
+                        background: var(--bg); }
+        tbody tr:hover td.sku-sticky { background: var(--surface2); }
+
+        /* ── SKU link ── */
+        .sku-link { font-family: monospace; font-size: 12px; color: var(--accent);
+                    text-decoration: none; }
+        .sku-link:hover { text-decoration: underline; }
+
+        /* ── Clear filters button ── */
+        .clear-btn { background: none; border: 1px solid var(--border); color: var(--muted);
+                     border-radius: 7px; padding: 5px 11px; font-size: 12px; cursor: pointer;
+                     transition: all .15s; white-space: nowrap; }
+        .clear-btn:hover { border-color: #ef4444; color: #ef4444; }
 
         /* ── WMS coverage dots ── */
         .wms-cell { text-align: center; }
@@ -215,6 +238,7 @@
         <span class="chip" data-wms="in_novex">US-Novex</span>
     </div>
 
+    <button id="clear-btn" class="clear-btn" style="display:none" onclick="clearAllFilters()">× Clear filters</button>
     <span class="result-count" id="result-count"></span>
     <div class="toolbar-right">
         <button class="dl-btn" id="col-toggle-btn" onclick="toggleColPanel()">⚙ Columns</button>
@@ -253,7 +277,7 @@
             <table>
                 <thead>
                     <tr>
-                        <th data-col="sku">SKU <span class="sort-arrow">↕</span></th>
+                        <th data-col="sku" class="sku-sticky">SKU <span class="sort-arrow">↕</span></th>
                         <th data-col="product_label_name">Product Label Name <span class="sort-arrow">↕</span></th>
                         <th data-col="variant_title"      class="cc-variant_title">Variant <span class="sort-arrow">↕</span></th>
                         <th data-col="variant_type"       class="cc-variant_type">Variant Type <span class="sort-arrow">↕</span></th>
@@ -302,7 +326,7 @@ let _currentSorted = []; // all filtered+sorted rows (used by CSV export — no 
 // ── Fetch all rows with pagination ───────────────────────────
 async function fetchAll() {
     const PAGE = 1000;
-    const select = 'sku,product_name,product_label_name,variant_type,segmentation,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,item_length_cm,item_width_cm,item_height_cm,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,master_carton_weight_kg,master_carton_quantity,mpn,procurement_status,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
+    const select = 'product_id,sku,product_name,product_label_name,variant_type,segmentation,variant_title,shopify_status,product_type,vendor,price,weight,weight_unit,item_length_cm,item_width_cm,item_height_cm,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,master_carton_weight_kg,master_carton_quantity,mpn,procurement_status,in_goodcang,in_propack,in_zenventory,in_activeants,in_mintsoft,in_novex';
     let rows = [], offset = 0;
     while (true) {
         const u = new URL(`${URL_BASE}/rest/v1/vw_product_sku_coverage`);
@@ -370,6 +394,7 @@ function applyFilters() {
         return true;
     });
 
+    document.getElementById('clear-btn').style.display = hasActiveFilters() ? '' : 'none';
     renderTable(filtered);
 }
 
@@ -447,8 +472,15 @@ function renderTable(data) {
         const dims = (cl && cw && ch) ? `${cl} × ${cw} × ${ch}` : '—';
         const mcl = fmtNum(r.master_carton_length_cm), mcw = fmtNum(r.master_carton_width_cm), mch = fmtNum(r.master_carton_height_cm);
         const cartonDims = (mcl && mcw && mch) ? `${mcl} × ${mcw} × ${mch}` : '—';
+        const shopifyUrl = r.product_id
+            ? `https://admin.shopify.com/store/lone-rider-adventure-motorcycle-equipment/products/${r.product_id}`
+            : null;
+        const procBadge = { 'Ongoing': 'proc-ongoing', 'NPL': 'proc-npl',
+                            'Discontinued': 'proc-discontinued' }[r.procurement_status] || 'proc-other';
         return `<tr>
-            <td class="sku">${r.sku || '—'}</td>
+            <td class="sku-sticky">${shopifyUrl
+                ? `<a class="sku-link" href="${shopifyUrl}" target="_blank" title="Open in Shopify">${r.sku || '—'}</a>`
+                : `<span class="sku">${r.sku || '—'}</span>`}</td>
             <td class="name" title="${displayName}">${truncate(displayName, 45)}</td>
             <td class="variant cc-variant_title">${r.variant_title && r.variant_title !== 'Default Title' ? r.variant_title : '—'}</td>
             <td class="variant cc-variant_type">${r.variant_type || '—'}</td>
@@ -462,7 +494,8 @@ function renderTable(data) {
             <td class="dims cc-carton_weight">${r.master_carton_weight_kg != null ? fmtNum(r.master_carton_weight_kg, 3) + ' kg' : '—'}</td>
             <td class="dims cc-carton_qty">${r.master_carton_quantity != null ? r.master_carton_quantity : '—'}</td>
             <td class="variant cc-mpn" style="font-family:monospace;font-size:12px">${r.mpn || '—'}</td>
-            <td class="variant cc-procurement_status">${r.procurement_status || '—'}</td>
+            <td class="cc-procurement_status">${r.procurement_status
+                ? `<span class="badge ${procBadge}">${r.procurement_status}</span>` : '—'}</td>
             ${WMS_FIELDS.map(f => `<td class="wms-cell cc-wms">
                 <span class="${r[f] ? 'dot-yes' : 'dot-no'}">${r[f] ? '●' : '○'}</span>
             </td>`).join('')}
@@ -505,6 +538,45 @@ function renderSummary() {
     }).join('');
 }
 
+// ── Clear filters ────────────────────────────────────────────
+function hasActiveFilters() {
+    return document.getElementById('search').value.trim() ||
+           document.getElementById('status-filter').value ||
+           document.getElementById('type-filter').value ||
+           document.getElementById('procurement-filter').value ||
+           document.getElementById('segmentation-filter').value ||
+           document.getElementById('variant-type-filter').value ||
+           _missingFilter.size > 0 || _statFilter !== null;
+}
+
+function clearAllFilters() {
+    document.getElementById('search').value = '';
+    ['status-filter','type-filter','procurement-filter',
+     'segmentation-filter','variant-type-filter'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    _missingFilter.clear();
+    document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
+    _statFilter = null;
+    renderSummary();
+    applyFilters();
+}
+
+// ── Real last-synced time from Supabase ───────────────────────
+async function fetchLastSyncTime() {
+    try {
+        const r = await fetch(
+            `${URL_BASE}/rest/v1/sync_state?sync_job=eq.shopify_products&select=last_sync_time&limit=1`,
+            { headers: { ...HEADERS, 'Accept-Profile': 'raw' } }
+        );
+        if (r.ok) {
+            const d = await r.json();
+            if (d[0]?.last_sync_time) return new Date(d[0].last_sync_time);
+        }
+    } catch {}
+    return null;
+}
+
 // ── Populate filter dropdowns from live data ─────────────────
 function populateFilters() {
     const fill = (id, values) => {
@@ -529,8 +601,16 @@ async function init() {
         renderSummary();
         applyFilters();
 
-        document.getElementById('last-updated').textContent =
-            `Last synced: ${new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric' })}`;
+        const syncTime = await fetchLastSyncTime();
+        const el = document.getElementById('last-updated');
+        if (syncTime) {
+            el.textContent = `Last synced: ${syncTime.toLocaleDateString('en-ZA',
+                { day:'2-digit', month:'short', year:'numeric' })} ${syncTime.toLocaleTimeString('en-ZA',
+                { hour:'2-digit', minute:'2-digit' })}`;
+        } else {
+            el.textContent = `Last synced: ${new Date().toLocaleDateString('en-ZA',
+                { day:'2-digit', month:'short', year:'numeric' })}`;
+        }
 
     } catch (e) {
         document.getElementById('loading').innerHTML =
