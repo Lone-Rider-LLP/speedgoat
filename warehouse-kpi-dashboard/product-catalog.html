@@ -408,6 +408,10 @@ const WMS_LABELS = { in_goodcang:'AU-GoodCang', in_propack:'CA-Propack',
 
 let ALL = [];
 let _sort = { col: 'product_label_name', dir: 1 };
+
+// Virtual/placeholder SKUs excluded from all views (same treatment as bundles)
+const VIRTUAL_PREFIXES = ['BUNDLE', 'RANDOM-'];
+const isVirtualSKU = sku => VIRTUAL_PREFIXES.some(p => sku?.toUpperCase().startsWith(p));
 let _missingFilter     = new Set(); // WMS "missing from" chips
 let _missingDataFilter = new Set(); // metafield completeness chips
 let _statFilter = null; // null | 'active' | 'full' | 'gaps'
@@ -469,7 +473,7 @@ function applyFilters() {
     const q = document.getElementById('search').value.trim().toLowerCase();
 
     const filtered = ALL.filter(r => {
-        if (r.sku?.toUpperCase().startsWith('BUNDLE')) return false; // virtual SKUs — excluded
+        if (isVirtualSKU(r.sku)) return false; // virtual/placeholder SKUs excluded
         const pname = (r.product_label_name || r.product_name || '').toLowerCase();
         if (q && !r.sku?.toLowerCase().includes(q) && !pname.includes(q)) return false;
         for (const cfg of Object.values(_msel)) {
@@ -627,7 +631,7 @@ const WMS_INFO = [
 ];
 
 function renderSummary() {
-    const nb     = ALL.filter(r => !r.sku?.toUpperCase().startsWith('BUNDLE'));
+    const nb     = ALL.filter(r => !isVirtualSKU(r.sku));
     const active = nb.filter(r => r.shopify_status === 'active');
     const total  = nb.length;
     const full   = nb.filter(r => covCount(r) === 6).length;
@@ -721,7 +725,7 @@ async function fetchLastSyncTime() {
 
 // ── Missing data chip counts ──────────────────────────────────
 function updateMissingCounts() {
-    const active = ALL.filter(r => !r.sku?.toUpperCase().startsWith('BUNDLE'));
+    const active = ALL.filter(r => !isVirtualSKU(r.sku));
     document.querySelectorAll('.chip[data-missing]').forEach(chip => {
         const field = chip.dataset.missing;
         const base  = chip.dataset.base || chip.textContent;
