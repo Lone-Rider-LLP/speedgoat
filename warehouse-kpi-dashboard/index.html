@@ -273,6 +273,7 @@
         <a href="index.html" class="active">Warehouse KPIs</a>
         <a href="product-catalog.html">Product Catalog</a>
         <a href="bundle-mapping.html">Bundle Mapping</a>
+        <a href="transportation-costs.html">Transportation Costs</a>
     </nav>
 
     <div class="sb-section">Navigate</div>
@@ -400,6 +401,7 @@
         <a href="index.html" class="active">Warehouse KPIs</a>
         <a href="product-catalog.html">Product Catalog</a>
         <a href="bundle-mapping.html">Bundle Mapping</a>
+        <a href="transportation-costs.html">Transportation Costs</a>
     </nav>
 
     <main>
@@ -1670,11 +1672,17 @@ function setSort(col) {
     renderTable();
 }
 
-// ── Shipment items (EU-ActiveAnts only) ───────────────────────────────────────
-async function fetchShipmentItems(wsi) {
+// ── Shipment items (all warehouses with an ITEMS_VIEWS entry) ─────────────────
+async function fetchShipmentItems(wsi, warehouseName) {
     const headers = { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}` };
-    const u = new URL(`${URL_BASE}/rest/v1/vw_activeants_shipment_items`);
-    u.searchParams.set('select', 'sku,quantity,lot_number,service_name');
+    const info = ITEMS_VIEWS[warehouseName];
+    if (!info) return [];
+    // EU-ActiveAnts has extra lot_number/service_name columns not in the shared select
+    const select = warehouseName === 'EU-ActiveAnts'
+        ? 'sku,quantity,lot_number,service_name'
+        : info.select;
+    const u = new URL(`${URL_BASE}/rest/v1/${info.view}`);
+    u.searchParams.set('select', select);
     u.searchParams.set('warehouse_shipment_id', `eq.${wsi}`);
     u.searchParams.set('order', 'sku.asc');
     const r = await fetch(u, { headers });
@@ -1684,15 +1692,18 @@ async function fetchShipmentItems(wsi) {
 
 function renderItemsSection(items) {
     if (!items.length) return '<div class="items-loading">No item data available</div>';
-    const hasLot = items.some(i => i.lot_number);
+    const hasLot     = items.some(i => i.lot_number);
+    const hasProduct = items.some(i => i.product_name);
     return `<table class="items-table">
         <thead><tr>
             <th>SKU</th>
+            ${hasProduct ? '<th>Product</th>' : ''}
             <th class="r">Qty</th>
             ${hasLot ? '<th>Lot</th>' : ''}
         </tr></thead>
         <tbody>${items.map(i => `<tr>
             <td style="font-weight:600;font-family:monospace">${i.sku || '—'}</td>
+            ${hasProduct ? `<td style="color:var(--muted);font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis">${i.product_name || '—'}</td>` : ''}
             <td class="r">${i.quantity ?? '—'}</td>
             ${hasLot ? `<td style="color:var(--muted)">${i.lot_number || '—'}</td>` : ''}
         </tr>`).join('')}</tbody>
@@ -1733,15 +1744,15 @@ function openDrawer(wsi, ws) {
         r.exclude_from_avg?row('Excluded', '<span style="color:#f87171">Yes — not in averages</span>'):'',
     ].join('');
 
-    // Items breakdown — EU-ActiveAnts only (Snowflake data via vw_activeants_shipment_items)
-    if (r.warehouse_name === 'EU-ActiveAnts') {
+    // Items breakdown — all warehouses that have a view in ITEMS_VIEWS
+    if (ITEMS_VIEWS[r.warehouse_name]) {
         const itemsDiv = document.createElement('div');
         itemsDiv.className = 'items-section';
         itemsDiv.id = 'drawer-items';
         itemsDiv.innerHTML = '<div class="items-title">Items in this shipment</div><div class="items-loading">Loading…</div>';
         drawerBody.appendChild(itemsDiv);
 
-        fetchShipmentItems(wsi)
+        fetchShipmentItems(wsi, r.warehouse_name)
             .then(items => {
                 const div = document.getElementById('drawer-items');
                 if (!div) return;
