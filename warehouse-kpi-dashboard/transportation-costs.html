@@ -57,6 +57,12 @@
                             color: var(--muted); cursor: pointer; user-select: none; padding: 3px 0; }
         .mode-check input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
         .mode-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        /* Currency toggle */
+        .ccy-btn { flex:1; background: var(--surface2); border: 1px solid var(--border);
+                   color: var(--muted); border-radius: 6px; padding: 6px 0; font-size: 12px;
+                   cursor: pointer; transition: all .15s; font-weight: 500; }
+        .ccy-btn.active { background: rgba(249,115,22,.12); border-color: var(--accent);
+                          color: var(--accent); font-weight: 700; }
 
         /* ── Main wrap ── */
         .main-wrap { margin-left: var(--sb-w); flex: 1; min-width: 0;
@@ -237,6 +243,13 @@
         <button onclick="setAllStatuses(false)">None</button>
     </div>
     <div id="status-checks"></div>
+
+    <div class="sb-section">Display currency</div>
+    <div style="padding: 0 16px 8px; display: flex; gap: 6px;">
+        <button class="ccy-btn active" data-ccy="cny" onclick="setCurrency('cny')">CNY</button>
+        <button class="ccy-btn" data-ccy="usd" onclick="setCurrency('usd')">USD</button>
+    </div>
+    <div id="fx-note" style="font-size:10px;color:var(--muted);padding:0 16px 14px;line-height:1.5"></div>
 </aside>
 
 <!-- ── Detail Drawer ── -->
@@ -409,6 +422,40 @@ let G = {
 let _sort = { col: 'creation_date', dir: -1 };
 let _selectedId = null;
 
+// ── FX / display currency ─────────────────────────────────────────────────────
+let DISPLAY_CCY = 'cny';  // 'cny' | 'usd'
+// Fallback rates (units per 1 USD) — overwritten by live fetch
+let FX_RATES = { USD:1, CNY:7.25, EUR:0.92, GBP:0.79, AUD:1.53, CAD:1.36 };
+let FX_UPDATED = null;
+
+async function fetchFXRates() {
+    try {
+        const r = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' });
+        if (r.ok) { const d = await r.json(); if (d.rates) { FX_RATES = { USD:1, ...d.rates }; FX_UPDATED = new Date(); } }
+    } catch(_) {}
+    const el = document.getElementById('fx-note');
+    if (el) el.textContent = FX_UPDATED
+        ? `1 USD = ${(FX_RATES.CNY||7.25).toFixed(2)} CNY · live rate`
+        : `1 USD ≈ ${(FX_RATES.CNY||7.25).toFixed(2)} CNY · approx`;
+}
+function toUSD(amount, ccy) {
+    if (amount == null) return null;
+    const r = FX_RATES[(ccy||'CNY').toUpperCase()];
+    return r ? +amount / r : +amount;
+}
+// Returns total in the currently selected display currency
+function dispTotal(r) { return DISPLAY_CCY === 'usd' ? r.total_usd : r.total_cny; }
+function dispCpkg(r)  { const t=dispTotal(r); return (t&&r.bwkg)  ? t/r.bwkg  : null; }
+function dispCpcbm(r) { const t=dispTotal(r); return (t&&r.bcbm)  ? t/r.bcbm  : null; }
+function dispLabel()  { return DISPLAY_CCY === 'usd' ? 'USD' : 'CNY'; }
+function fmtDisp(v)   { return fmtAmt(v); }
+function setCurrency(ccy) {
+    DISPLAY_CCY = ccy;
+    document.querySelectorAll('.ccy-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.ccy === ccy));
+    renderAll();
+}
+
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 async function fetchAll(table, select, filters = {}) {
     const PAGE = 1000; let rows = [], offset = 0;
@@ -550,17 +597,16 @@ function applyFilters() {
             return true;
         })
         .map(s => {
-            const costs   = (costsByShipment[s.id] || []).filter(c => !c.archived_at);
-            const total   = costs.reduce((sum,c) => sum + (parseFloat(c.amount)||0), 0);
-            const bwkg    = costs.reduce((sum,c) => sum + (parseFloat(c.billed_weight_kg)||0), 0)
-                            || parseFloat(s.total_weight_kg) || null;
-            const bcbm    = costs.reduce((sum,c) => sum + (parseFloat(c.billed_cbm)||0), 0)
-                            || parseFloat(s.total_cbm) || null;
-            const cpkg    = (total && bwkg)  ? total / bwkg  : null;
-            const cpcbm   = (total && bcbm)  ? total / bcbm  : null;
-            const destName = DEST_MAP[s.destination_id] || null;
-            const currency = costs[0]?.currency || 'USD';
-            return { ...s, costs, total, bwkg, bcbm, cpkg, cpcbm, destName, currency };
+            const costs     = (costsByShipment[s.id] || []).filter(c => !c.archived_at);
+            const total_cny = costs.reduce((sum,c) => sum + (parseFloat(c.amount)||0), 0);
+            const total_usd = costs.reduce((sum,c) => sum + (toUSD(parseFloat(c.amount)||0, c.currency)||0), 0);
+            const bwkg      = costs.reduce((sum,c) => sum + (parseFloat(c.billed_weight_kg)||0), 0)
+                              || parseFloat(s.total_weight_kg) || null;
+            const bcbm      = costs.reduce((sum,c) => sum + (parseFloat(c.billed_cbm)||0), 0)
+                              || parseFloat(s.total_cbm) || null;
+            const destName  = DEST_MAP[s.destination_id] || null;
+            const currency  = costs[0]?.currency || 'CNY';
+            return { ...s, costs, total_cny, total_usd, bwkg, bcbm, destName, currency };
         });
 
     renderAll();
@@ -578,43 +624,44 @@ function renderAll() {
     renderTable();
 
     const n = FILTERED.length;
-    const totalCost = FILTERED.reduce((s,r) => s+r.total, 0);
-    const currencies = [...new Set(FILTERED.flatMap(r => r.costs.map(c=>c.currency)).filter(Boolean))];
-    const currLabel  = currencies.length === 1 ? currencies[0] : (currencies.length > 1 ? 'mixed currencies' : '');
+    const totalDisp = FILTERED.reduce((s,r) => s+dispTotal(r), 0);
     document.getElementById('hdr-subtitle').textContent =
-        `${n} shipment${n!==1?'s':''} · ${fmtAmt(totalCost)} ${currLabel} total spend`;
+        `${n} shipment${n!==1?'s':''} · ${dispLabel()} ${fmtAmt(totalDisp)} total spend`;
 }
 
 // ── KPI cards ─────────────────────────────────────────────────────────────────
 function renderKPIs() {
-    const costs      = FILTERED.flatMap(r => r.costs);
-    const totalSpend = FILTERED.reduce((s,r) => s+r.total, 0);
-    const currencies = [...new Set(costs.map(c=>c.currency).filter(Boolean))];
-    const curLabel   = currencies.length === 1 ? currencies[0] : 'USD';
+    const totalSpend = FILTERED.reduce((s,r) => s+dispTotal(r), 0);
+    const curLabel   = dispLabel();
     const withCosts  = FILTERED.filter(r => r.costs.length > 0);
     const avgPerShip = withCosts.length ? totalSpend / withCosts.length : null;
-    const allCpkg    = FILTERED.map(r=>r.cpkg).filter(v=>v!==null);
-    const allCpcbm   = FILTERED.map(r=>r.cpcbm).filter(v=>v!==null);
+    const allCpkg    = FILTERED.map(r=>dispCpkg(r)).filter(v=>v!==null);
     const avgCpkg    = avg(allCpkg);
-    const avgCpcbm   = avg(allCpcbm);
 
     // Dominant mode by cost
     const byCostMode = {};
-    FILTERED.forEach(r => { if(r.mode) byCostMode[r.mode]=(byCostMode[r.mode]||0)+r.total; });
+    FILTERED.forEach(r => { if(r.mode) byCostMode[r.mode]=(byCostMode[r.mode]||0)+dispTotal(r); });
     const topMode = Object.entries(byCostMode).sort((a,b)=>b[1]-a[1])[0];
+
+    const totalAlt    = DISPLAY_CCY === 'usd'
+        ? `CNY ${fmtAmt(FILTERED.reduce((s,r)=>s+r.total_cny,0))}`
+        : `≈ USD ${fmtAmt(FILTERED.reduce((s,r)=>s+r.total_usd,0))}`;
+    const avgAlt      = avgPerShip != null
+        ? (DISPLAY_CCY === 'usd'
+            ? `CNY ${fmtAmt(withCosts.reduce((s,r)=>s+r.total_cny,0)/withCosts.length)}`
+            : `≈ USD ${fmtAmt(withCosts.reduce((s,r)=>s+r.total_usd,0)/withCosts.length)}`)
+        : '';
 
     document.getElementById('kpi-grid').innerHTML = `
         <div class="kpi-card">
             <div class="kpi-label">Total Spend</div>
-            <div class="kpi-value">${fmtAmt(totalSpend)}</div>
-            <div class="kpi-sub">${FILTERED.length} shipment${FILTERED.length!==1?'s':''} · ${withCosts.length} with cost data</div>
-            <span class="pill blue">${curLabel}</span>
+            <div class="kpi-value">${curLabel} ${fmtAmt(totalSpend)}</div>
+            <div class="kpi-sub">${totalAlt} · ${withCosts.length} shipments with costs</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">Avg Cost / Shipment</div>
-            <div class="kpi-value">${avgPerShip!=null ? fmtAmt(avgPerShip) : '—'}</div>
-            <div class="kpi-sub">${withCosts.length} shipments with cost entries</div>
-            <span class="pill orange">${curLabel}</span>
+            <div class="kpi-value">${curLabel} ${avgPerShip!=null ? fmtAmt(avgPerShip) : '—'}</div>
+            <div class="kpi-sub">${avgAlt || '—'} · ${withCosts.length} shipments</div>
         </div>
         <div class="kpi-card">
             <div class="kpi-label">Avg Cost / kg</div>
@@ -625,7 +672,7 @@ function renderKPIs() {
         <div class="kpi-card">
             <div class="kpi-label">Most Expensive Mode</div>
             <div class="kpi-value" style="font-size:22px">${topMode ? cap(topMode[0]) : '—'}</div>
-            <div class="kpi-sub">${topMode ? fmtAmt(topMode[1]) + ' ' + curLabel + ' total' : 'No data yet'}</div>
+            <div class="kpi-sub">${topMode ? curLabel+' '+fmtAmt(topMode[1])+' total' : 'No data yet'}</div>
             ${topMode ? `<span class="pill" style="background:${MODE_COLOR[topMode[0]]}22;color:${MODE_COLOR[topMode[0]]}">${cap(topMode[0])}</span>` : ''}
         </div>`;
 }
@@ -640,11 +687,11 @@ function renderMonthlyChart() {
         return;
     }
     const labels = monthKeys.map(monthLabel);
-    const datasets = MODES.filter(m => FILTERED.some(r=>r.mode===m&&r.total>0)).map(m => {
+    const datasets = MODES.filter(m => FILTERED.some(r=>r.mode===m&&dispTotal(r)>0)).map(m => {
         const byMonth = groupBy(FILTERED.filter(r=>r.mode===m), r=>monthKey(r.creation_date));
         return {
             label: cap(m),
-            data:  monthKeys.map(k => (byMonth[k]||[]).reduce((s,r)=>s+r.total,0) || 0),
+            data:  monthKeys.map(k => (byMonth[k]||[]).reduce((s,r)=>s+dispTotal(r),0) || 0),
             backgroundColor: MODE_COLOR[m]+'cc',
             borderColor:     MODE_COLOR[m],
             borderWidth: 1, borderRadius: 3,
@@ -653,7 +700,7 @@ function renderMonthlyChart() {
     bar('ch-monthly', labels, datasets, {
         plugins: { legend:{ display:true, position:'bottom', labels:{boxWidth:10,padding:14,color:'#7c87a0'} }, tooltip:TOOLTIP },
         scales:  { x:{...SCALES.x, stacked:true}, y:{...SCALES.y, stacked:true,
-            ticks:{callback:v=>fmtAmt(v)}, title:{display:true,text:'Cost',color:'#7c87a0',font:{size:11}}} },
+            ticks:{callback:v=>fmtAmt(v)}, title:{display:true,text:`Cost (${dispLabel()})`,color:'#7c87a0',font:{size:11}}} },
     });
 }
 
@@ -662,7 +709,8 @@ function renderCostTypeChart() {
     const costs = FILTERED.flatMap(r => r.costs);
     const byType = {};
     COST_TYPES.forEach(t => byType[t] = 0);
-    costs.forEach(c => { if(byType[c.cost_type]!==undefined) byType[c.cost_type] += parseFloat(c.amount)||0; });
+    costs.forEach(c => { if(byType[c.cost_type]!==undefined) byType[c.cost_type] +=
+        DISPLAY_CCY === 'usd' ? (toUSD(parseFloat(c.amount)||0, c.currency)||0) : (parseFloat(c.amount)||0); });
     const labels = COST_TYPES.filter(t=>byType[t]>0).map(t=>cap(t));
     const data   = COST_TYPES.filter(t=>byType[t]>0).map(t=>byType[t]);
     const colors = COST_TYPES.filter(t=>byType[t]>0).map(t=>COST_TYPE_COLOR[t]);
@@ -682,7 +730,7 @@ function renderCostTypeChart() {
 // ── Mode breakdown ────────────────────────────────────────────────────────────
 function renderModeChart() {
     const byMode = {};
-    FILTERED.forEach(r => { if(r.mode) byMode[r.mode]=(byMode[r.mode]||0)+r.total; });
+    FILTERED.forEach(r => { if(r.mode) byMode[r.mode]=(byMode[r.mode]||0)+dispTotal(r); });
     const entries = Object.entries(byMode).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     if (!entries.length) { destroyChart('ch-mode'); return; }
     hbar('ch-mode', entries.map(([m])=>cap(m)), [{
@@ -697,7 +745,7 @@ function renderModeChart() {
 // ── Service type breakdown ────────────────────────────────────────────────────
 function renderServiceChart() {
     const bySvc = {};
-    FILTERED.forEach(r => { if(r.service_type) bySvc[r.service_type]=(bySvc[r.service_type]||0)+r.total; });
+    FILTERED.forEach(r => { if(r.service_type) bySvc[r.service_type]=(bySvc[r.service_type]||0)+dispTotal(r); });
     const entries = Object.entries(bySvc).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     if (!entries.length) { destroyChart('ch-service'); return; }
     const PAL = ['#f97316','#38bdf8','#a78bfa','#34d399','#fbbf24'];
@@ -715,7 +763,7 @@ function renderDestChart() {
     const byDest = {};
     FILTERED.forEach(r => {
         const label = r.destName || (r.destination_id ? r.destination_id.slice(0,8)+'…' : 'Unknown');
-        byDest[label] = (byDest[label]||0) + r.total;
+        byDest[label] = (byDest[label]||0) + dispTotal(r);
     });
     const entries = Object.entries(byDest).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,8);
     if (!entries.length) { destroyChart('ch-dest'); return; }
@@ -734,10 +782,10 @@ function renderEfficiency() {
     // Avg cost/kg by mode
     const modeKg = {}, modeCBM = {};
     MODES.forEach(m => {
-        const rows = FILTERED.filter(r=>r.mode===m&&r.cpkg!==null);
-        if (rows.length) modeKg[m]  = avg(rows.map(r=>r.cpkg));
-        const cbmRows = FILTERED.filter(r=>r.mode===m&&r.cpcbm!==null);
-        if (cbmRows.length) modeCBM[m] = avg(cbmRows.map(r=>r.cpcbm));
+        const rows = FILTERED.filter(r=>r.mode===m&&dispCpkg(r)!==null);
+        if (rows.length) modeKg[m]  = avg(rows.map(r=>dispCpkg(r)));
+        const cbmRows = FILTERED.filter(r=>r.mode===m&&dispCpcbm(r)!==null);
+        if (cbmRows.length) modeCBM[m] = avg(cbmRows.map(r=>dispCpcbm(r)));
     });
     const kgEntries  = Object.entries(modeKg).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     const cbmEntries = Object.entries(modeCBM).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
@@ -853,8 +901,10 @@ function renderTable() {
             <td style="font-size:12px;color:var(--muted)">${fmtDate(r.actual_delivery_date)}</td>
             <td class="r" style="font-size:12px">${r.total_weight_kg!=null?Number(r.total_weight_kg).toLocaleString():'—'}</td>
             <td class="r" style="font-size:12px">${r.total_cbm!=null?Number(r.total_cbm).toFixed(2):'—'}</td>
-            <td class="r" style="font-weight:600">${r.costs.length ? fmtAmt(r.total,currency) : '<span style="color:var(--muted)">no data</span>'}</td>
-            <td class="r" style="font-size:12px;color:var(--muted)">${r.cpkg!=null?fmtPrecise(r.cpkg)+'<span style="font-size:10px">/kg</span>':'—'}</td>
+            <td class="r" style="font-weight:600">${r.costs.length
+                ? `<div style="font-size:13px">${dispLabel()} ${fmtAmt(dispTotal(r))}</div><div style="font-size:10px;color:var(--muted)">${DISPLAY_CCY==='usd'?'CNY '+fmtAmt(r.total_cny):'≈ USD '+fmtAmt(r.total_usd)}</div>`
+                : '<span style="color:var(--muted)">no data</span>'}</td>
+            <td class="r" style="font-size:12px;color:var(--muted)">${dispCpkg(r)!=null?fmtPrecise(dispCpkg(r))+'<span style="font-size:10px">/kg</span>':'—'}</td>
             <td><div class="cbar-wrap">${cbar}</div></td>
         </tr>`;
     }).join('');
@@ -898,9 +948,12 @@ function openDrawer(id) {
         r.container_number ? row('Container',  r.container_number) : '',
         r.bill_of_lading   ? row('B/L',        r.bill_of_lading)   : '',
         r.tracking_reference ? row('Tracking', r.tracking_reference) : '',
-        row('Total Cost',   r.costs.length ? `<strong>${fmtAmt(r.total, currency)}</strong>` : '<span style="color:var(--muted)">No cost entries</span>'),
-        r.cpkg  != null ? row('Cost / kg',  `${fmtPrecise(r.cpkg)} ${currency}/kg`)   : '',
-        r.cpcbm != null ? row('Cost / CBM', `${fmtPrecise(r.cpcbm)} ${currency}/CBM`) : '',
+        row('Total Cost', r.costs.length
+            ? `<div><strong>${dispLabel()} ${fmtAmt(dispTotal(r))}</strong></div>` +
+              `<div style="font-size:11px;color:var(--muted);margin-top:2px">${DISPLAY_CCY==='usd'?'CNY '+fmtAmt(r.total_cny):'≈ USD '+fmtAmt(r.total_usd)}</div>`
+            : '<span style="color:var(--muted)">No cost entries</span>'),
+        dispCpkg(r)  != null ? row('Cost / kg',  `${fmtPrecise(dispCpkg(r))} ${dispLabel()}/kg`)   : '',
+        dispCpcbm(r) != null ? row('Cost / CBM', `${fmtPrecise(dispCpcbm(r))} ${dispLabel()}/CBM`) : '',
     ].filter(Boolean).join('');
 
     // Cost type breakdown
@@ -909,14 +962,15 @@ function openDrawer(id) {
             <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Cost Breakdown</div>`;
         const byCtype = {};
         COST_TYPES.forEach(t => byCtype[t] = 0);
-        r.costs.forEach(c => { if(byCtype[c.cost_type]!==undefined) byCtype[c.cost_type] += parseFloat(c.amount)||0; });
-        const total = Object.values(byCtype).reduce((s,v)=>s+v,0);
+        r.costs.forEach(c => { if(byCtype[c.cost_type]!==undefined) byCtype[c.cost_type] +=
+            DISPLAY_CCY === 'usd' ? (toUSD(parseFloat(c.amount)||0, c.currency)||0) : (parseFloat(c.amount)||0); });
+        const drawerTotal = Object.values(byCtype).reduce((s,v)=>s+v,0);
         html += Object.entries(byCtype).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([t,v]) =>
             `<div class="ct-line">
                 <span class="ct-dot" style="background:${COST_TYPE_COLOR[t]}"></span>
                 <span class="ct-label">${cap(t)}</span>
-                <span class="ct-amount">${fmtAmt(v, currency)}</span>
-                <span class="ct-pct">${(v/total*100).toFixed(1)}%</span>
+                <span class="ct-amount">${dispLabel()} ${fmtAmt(v)}</span>
+                <span class="ct-pct">${(v/drawerTotal*100).toFixed(1)}%</span>
             </div>`).join('');
 
         // Individual cost entries
@@ -959,6 +1013,7 @@ function emptyState(msg) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
     buildSidebar();
+    fetchFXRates(); // fetch live FX rates non-blocking; fallbacks in place
 
     // Default date range: last 6 months
     const to   = new Date(); to.setHours(23,59,59,999);
