@@ -172,7 +172,7 @@
 <header>
     <div class="hdr-left">
         <h1>Shipping Estimator</h1>
-        <p id="hdr-sub">Estimate inbound freight costs based on historical rates</p>
+        <p id="hdr-sub">Freight cost estimate based on historical rates · customs, fuel &amp; handling are additional</p>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
         <div class="ccy-btns">
@@ -261,7 +261,7 @@
         </div>
 
         <!-- ── Mode comparison ── -->
-        <div class="section-label">Cost Estimate by Mode</div>
+        <div class="section-label">Freight Cost Estimate by Mode <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:10px">— customs, fuel &amp; handling not included</span></div>
         <div class="mode-grid" id="mode-grid">
             <div class="placeholder" style="grid-column:1/-1">
                 <div class="placeholder-icon">📦</div>
@@ -313,8 +313,8 @@
                     <thead>
                         <tr>
                             <th>Mode</th>
-                            <th class="r">Avg Cost / kg</th>
-                            <th class="r">Avg Cost / CBM</th>
+                            <th class="r">Avg Freight / kg</th>
+                            <th class="r">Avg Freight / CBM</th>
                             <th class="r">Shipments</th>
                             <th class="r">Kg data pts</th>
                             <th class="r">CBM data pts</th>
@@ -391,10 +391,11 @@ function avg(arr) { return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : nu
 function groupBy(arr, fn) { return arr.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
 
 function computeModeRates(ships) {
-    const kgShips  = ships.filter(s => s.bwkg  > 0 && s.total_cny > 0);
-    const cbmShips = ships.filter(s => s.bcbm  > 0 && s.total_cny > 0);
-    const cpkg     = kgShips.length  ? avg(kgShips.map(s  => s.total_cny / s.bwkg))  : null;
-    const cpcbm    = cbmShips.length ? avg(cbmShips.map(s => s.total_cny / s.bcbm)) : null;
+    // Rates based on freight costs only — directly proportional to weight/CBM
+    const kgShips  = ships.filter(s => s.bwkg  > 0 && s.freight_cny > 0);
+    const cbmShips = ships.filter(s => s.bcbm  > 0 && s.freight_cny > 0);
+    const cpkg     = kgShips.length  ? avg(kgShips.map(s  => s.freight_cny / s.bwkg))  : null;
+    const cpcbm    = cbmShips.length ? avg(cbmShips.map(s => s.freight_cny / s.bcbm)) : null;
 
     // Cost type ratios (for the split chart)
     const allCosts = ships.flatMap(s => s.costs);
@@ -732,9 +733,9 @@ function renderWorkings(l, w, h, kgPerCarton, qty, totalCBM, totalWeight, estima
         return `<div class="workings-block">
             <div class="workings-mode" style="color:${mColor}">${MODE_ICON[mode]} ${mode.toUpperCase()}</div>
             ${isAirLike ? step('Chargeable weight', `max(actual ${fmtPrec(totalWeight,1)}, vol ${fmtPrec(volWeightAir,1)})`, `${fmtPrec(chargeWt,1)} kg`) : ''}
-            ${step('Historical rate', sourceTag, rateLabel)}
-            ${r.cpkg  ? step('Avg cost/kg',  `from ${r.kgCount} shipments`,  `CNY ${fmtPrec(r.cpkg,2)}/kg`) : ''}
-            ${r.cpcbm ? step('Avg cost/CBM', `from ${r.cbmCount} shipments`, `CNY ${fmtPrec(r.cpcbm,2)}/CBM`) : ''}
+            ${step('Freight rate', sourceTag, rateLabel)}
+            ${r.cpkg  ? step('Avg freight/kg',  `from ${r.kgCount} shipments`,  `CNY ${fmtPrec(r.cpkg,2)}/kg`) : ''}
+            ${r.cpcbm ? step('Avg freight/CBM', `from ${r.cbmCount} shipments`, `CNY ${fmtPrec(r.cpcbm,2)}/CBM`) : ''}
             ${step('Calculation', `${rateLabel} × ${qty2}`, '')}
             ${step('Estimated total', `=`, `${dispLabel()} ${fmtAmt(dispAmt(e.cost))}`, true)}
             <div class="calc-note">${r.count} historical shipment${r.count!==1?'s':''} used</div>
@@ -752,7 +753,7 @@ function renderRatesTable(selectedDest) {
     const tbody = document.getElementById('rates-tbody');
 
     const totalShips = Object.values(RATES).reduce((s,r) => s + r.count, 0);
-    sub.textContent = `Based on ${totalShips} historical shipments with cost data · rates always shown in CNY`;
+    sub.textContent = `Freight costs only · averaged from ${totalShips} historical shipments · rates in CNY`;
 
     // Find max cpkg and cpcbm for bar scaling
     const maxCpkg  = Math.max(...MODES.map(m => RATES[m]?.cpkg  || 0));
@@ -826,13 +827,16 @@ async function init() {
         (m[c.shipment_id] = m[c.shipment_id]||[]).push(c); return m; }, {});
 
     ALL_SHIPMENTS = shipments.map(s => {
-        const sc       = (costsByShipment[s.id]||[]).filter(c=>!c.archived_at);
-        const total_cny = sc.reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
-        const bwkg     = sc.reduce((sum,c) => sum+(parseFloat(c.billed_weight_kg)||0), 0)
-                         || parseFloat(s.total_weight_kg) || 0;
-        const bcbm     = sc.reduce((sum,c) => sum+(parseFloat(c.billed_cbm)||0), 0)
-                         || parseFloat(s.total_cbm) || 0;
-        return { ...s, costs: sc, total_cny, bwkg, bcbm };
+        const sc          = (costsByShipment[s.id]||[]).filter(c=>!c.archived_at);
+        const total_cny   = sc.reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
+        // Freight only — used for rate computation (freight is directly weight/CBM-linked)
+        const freight_cny = sc.filter(c=>c.cost_type==='freight')
+                              .reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
+        const bwkg        = sc.reduce((sum,c) => sum+(parseFloat(c.billed_weight_kg)||0), 0)
+                            || parseFloat(s.total_weight_kg) || 0;
+        const bcbm        = sc.reduce((sum,c) => sum+(parseFloat(c.billed_cbm)||0), 0)
+                            || parseFloat(s.total_cbm) || 0;
+        return { ...s, costs: sc, total_cny, freight_cny, bwkg, bcbm };
     });
 
     WAREHOUSES = locations.filter(l => !l.archived_at);
