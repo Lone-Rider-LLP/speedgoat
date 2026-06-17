@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedGoat — Shipping Estimator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0c0e16; --surface: #161926; --surface2: #1e2235;
+            --border: #2a2f45; --text: #e2e8f0; --muted: #7c87a0;
+            --accent: #f97316; --green: #34d399; --blue: #60a5fa;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 14px; min-height: 100vh; }
+
+        header { background: var(--surface); border-bottom: 1px solid var(--border);
+                 padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+        .hdr-left h1 { font-size: 18px; font-weight: 600; }
+        .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        #last-updated { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.6; }
+
+        .page-nav { display: flex; background: var(--surface);
+                    border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; }
+        .page-nav a { padding: 10px 16px; font-size: 13px; text-decoration: none;
+                      color: var(--muted); border-bottom: 2px solid transparent;
+                      margin-bottom: -1px; transition: color .15s, border-color .15s; white-space: nowrap; }
+        .page-nav a:hover  { color: var(--text); }
+        .page-nav a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+        main { padding: 22px 28px; max-width: 1400px; }
+
+        /* ── Loading ── */
+        #loading { display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; height: 60vh; gap: 14px; color: var(--muted); }
+        .spinner { width: 34px; height: 34px; border: 3px solid var(--border);
+                   border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #error-box { display: none; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+                     border-radius: 8px; padding: 14px 18px; color: #fca5a5; margin: 16px 0; }
+
+        /* ── Cards ── */
+        .card { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 10px; padding: 20px 24px; margin-bottom: 16px; }
+        .card-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .card-sub   { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+        .section-label { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                         text-transform: uppercase; color: var(--muted); margin: 24px 0 10px; }
+        .section-label:first-child { margin-top: 0; }
+
+        /* ── Inputs ── */
+        .inputs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .inputs-grid { grid-template-columns: 1fr; } }
+        .field-group { display: flex; flex-direction: column; gap: 8px; }
+        .field-group label { font-size: 11px; font-weight: 700; letter-spacing: .08em;
+                             text-transform: uppercase; color: var(--muted); }
+        .field-row { display: flex; gap: 8px; align-items: center; }
+        .field-row .dim-sep { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+        input[type=number], select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 7px; padding: 9px 12px;
+            font-size: 13px; width: 100%; outline: none; transition: border-color .15s;
+            -moz-appearance: textfield; }
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+        input[type=number]:focus, select:focus { border-color: var(--accent); }
+        select option { background: var(--surface2); }
+
+        /* ── Computed metrics strip ── */
+        .metrics-strip { display: flex; flex-wrap: wrap; gap: 20px; padding: 14px 0 0;
+                         border-top: 1px solid var(--border); margin-top: 18px; }
+        .metric { display: flex; flex-direction: column; gap: 2px; }
+        .metric-label { font-size: 10px; font-weight: 700; letter-spacing: .08em;
+                        text-transform: uppercase; color: var(--muted); }
+        .metric-value { font-size: 18px; font-weight: 700; }
+        .metric-unit  { font-size: 11px; color: var(--muted); }
+        .metric-note  { font-size: 11px; color: var(--muted); font-style: italic; }
+
+        /* ── Mode cards ── */
+        .mode-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+        @media (max-width: 1100px) { .mode-grid { grid-template-columns: repeat(3, 1fr); } }
+        .mode-card { background: var(--surface2); border: 1px solid var(--border);
+                     border-radius: 10px; padding: 16px; position: relative;
+                     transition: border-color .15s; }
+        .mode-card.cheapest { border-color: var(--green); }
+        .mode-card.no-data  { opacity: .5; }
+        .mode-icon { font-size: 20px; margin-bottom: 8px; }
+        .mode-name { font-size: 11px; font-weight: 700; letter-spacing: .1em;
+                     text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+        .mode-cost { font-size: 22px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+        .mode-cost-alt { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+        .mode-detail { font-size: 11px; color: var(--muted); line-height: 1.6; }
+        .mode-detail strong { color: var(--text); font-weight: 600; }
+        .cheapest-badge { position: absolute; top: 10px; right: 10px; background: var(--green);
+                          color: #0c0e16; font-size: 9px; font-weight: 700; letter-spacing: .08em;
+                          text-transform: uppercase; padding: 2px 7px; border-radius: 10px; }
+        .confidence { display: flex; align-items: center; gap: 5px; margin-top: 10px;
+                      padding-top: 10px; border-top: 1px solid var(--border); }
+        .conf-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+        .conf-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width .3s; }
+        .conf-label { font-size: 10px; color: var(--muted); white-space: nowrap; }
+
+        /* ── Cost type breakdown chart ── */
+        .ct-chart-wrap { height: 220px; position: relative; }
+
+        /* ── Destination table ── */
+        .dest-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .dest-table th { padding: 8px 14px; text-align: left; font-size: 10px; font-weight: 700;
+                         letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+                         border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .dest-table th.r, .dest-table td.r { text-align: right; }
+        .dest-table td { padding: 10px 14px; border-bottom: 1px solid rgba(42,47,69,.5); }
+        .dest-table tr:last-child td { border-bottom: none; }
+        .dest-table tr.cheapest-row td { background: rgba(52,211,153,.04); }
+        .best-badge { background: rgba(52,211,153,.15); color: #34d399; font-size: 10px;
+                      font-weight: 700; padding: 2px 7px; border-radius: 8px; margin-left: 6px; }
+
+        /* ── Historical rates table ── */
+        .rates-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .rates-table th { padding: 7px 12px; text-align: left; font-size: 10px; font-weight: 700;
+                          letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+                          border-bottom: 1px solid var(--border); }
+        .rates-table th.r, .rates-table td.r { text-align: right; }
+        .rates-table td { padding: 8px 12px; border-bottom: 1px solid rgba(42,47,69,.4); color: var(--muted); }
+        .rates-table td:first-child { color: var(--text); font-weight: 600; }
+        .rates-table tr:last-child td { border-bottom: none; }
+        .no-data-cell { color: rgba(124,135,160,.4) !important; font-style: italic; }
+
+        /* ── Currency toggle ── */
+        .ccy-btns { display: flex; gap: 6px; }
+        .ccy-btn { background: var(--surface2); border: 1px solid var(--border);
+                   color: var(--muted); border-radius: 6px; padding: 5px 14px; font-size: 12px;
+                   cursor: pointer; transition: all .15s; font-weight: 500; }
+        .ccy-btn.active { background: rgba(249,115,22,.12); border-color: var(--accent);
+                          color: var(--accent); font-weight: 700; }
+
+        /* ── Empty / placeholder ── */
+        .placeholder { display: flex; flex-direction: column; align-items: center;
+                       justify-content: center; min-height: 140px; gap: 8px;
+                       color: var(--muted); font-size: 13px; opacity: .6; }
+        .placeholder-icon { font-size: 32px; }
+
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .row2 { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="hdr-left">
+        <h1>Shipping Estimator</h1>
+        <p id="hdr-sub">Estimate inbound freight costs based on historical rates</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+        <div class="ccy-btns">
+            <button class="ccy-btn active" data-ccy="cny" onclick="setCurrency('cny')">CNY</button>
+            <button class="ccy-btn" data-ccy="usd" onclick="setCurrency('usd')">USD</button>
+        </div>
+        <span id="last-updated"></span>
+    </div>
+</header>
+<nav class="page-nav">
+    <a href="index.html">Warehouse KPIs</a>
+    <a href="product-catalog.html">Product Catalog</a>
+    <a href="bundle-mapping.html">Bundle Mapping</a>
+    <a href="transportation-costs.html">Transportation Costs</a>
+    <a href="shipping-estimator.html" class="active">Shipping Estimator</a>
+</nav>
+
+<main>
+    <div id="loading"><div class="spinner"></div><span>Loading historical rate data…</span></div>
+    <div id="error-box"></div>
+    <div id="app" style="display:none">
+
+        <!-- ── Inputs ── -->
+        <div class="section-label">Shipment Parameters</div>
+        <div class="card">
+            <div class="inputs-grid">
+                <!-- Dimensions -->
+                <div class="field-group">
+                    <label>Carton Dimensions (cm)</label>
+                    <div class="field-row">
+                        <input type="number" id="dim-l" placeholder="L" min="0" step="0.1" oninput="calculate()">
+                        <span class="dim-sep">×</span>
+                        <input type="number" id="dim-w" placeholder="W" min="0" step="0.1" oninput="calculate()">
+                        <span class="dim-sep">×</span>
+                        <input type="number" id="dim-h" placeholder="H" min="0" step="0.1" oninput="calculate()">
+                    </div>
+                </div>
+                <!-- Weight & Quantity -->
+                <div class="field-group">
+                    <label>Weight per Carton (kg)</label>
+                    <input type="number" id="weight" placeholder="e.g. 2.5" min="0" step="0.1" oninput="calculate()">
+                    <label style="margin-top:8px">Number of Cartons</label>
+                    <input type="number" id="qty" placeholder="e.g. 100" min="1" step="1" value="1" oninput="calculate()">
+                </div>
+                <!-- Destination -->
+                <div class="field-group">
+                    <label>Destination Warehouse</label>
+                    <select id="dest" onchange="calculate()">
+                        <option value="">All warehouses</option>
+                    </select>
+                    <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border)">
+                        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">How estimates are calculated</div>
+                        <div style="font-size:11px;color:var(--muted);line-height:1.6">
+                            Air/Express: chargeable weight = max(actual, L×W×H÷6000)<br>
+                            Sea/Rail/Road: based on CBM where available, weight otherwise.<br>
+                            Rates derived from your historical shipment costs.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Computed metrics -->
+            <div class="metrics-strip" id="metrics-strip">
+                <div class="metric">
+                    <span class="metric-label">CBM per Carton</span>
+                    <span class="metric-value" id="m-cbm-per">—</span>
+                    <span class="metric-unit">m³</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Total CBM</span>
+                    <span class="metric-value" id="m-cbm-total">—</span>
+                    <span class="metric-unit">m³</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Actual Weight</span>
+                    <span class="metric-value" id="m-weight-actual">—</span>
+                    <span class="metric-unit">kg</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Vol. Weight (Air)</span>
+                    <span class="metric-value" id="m-weight-vol">—</span>
+                    <span class="metric-unit">kg</span>
+                    <span class="metric-note" id="m-chargeable-note"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Mode comparison ── -->
+        <div class="section-label">Cost Estimate by Mode</div>
+        <div class="mode-grid" id="mode-grid">
+            <div class="placeholder" style="grid-column:1/-1">
+                <div class="placeholder-icon">📦</div>
+                Enter carton dimensions and weight above to see estimates
+            </div>
+        </div>
+
+        <!-- ── Cost type breakdown + Destination comparison ── -->
+        <div class="row2" style="margin-top:16px">
+            <div class="card">
+                <div class="card-title">Cost Type Split by Mode</div>
+                <div class="card-sub">Historical ratio of freight · customs · fuel · handling · accessorials</div>
+                <div id="ct-chart-container">
+                    <div class="placeholder">
+                        <div class="placeholder-icon">📊</div>
+                        Enter dimensions to see breakdown
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title">Destination Comparison</div>
+                <div class="card-sub" id="dest-comp-sub">Estimated cost per warehouse (cheapest mode)</div>
+                <div id="dest-comparison">
+                    <div class="placeholder">
+                        <div class="placeholder-icon">🌍</div>
+                        Enter dimensions to compare destinations
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Historical rates ── -->
+        <div class="section-label">Historical Rate Basis</div>
+        <div class="card">
+            <div class="card-title">Rates Used for Estimates</div>
+            <div class="card-sub" id="rates-basis-sub">Averages computed from all historical shipments</div>
+            <div style="overflow-x:auto">
+                <table class="rates-table" id="rates-table">
+                    <thead>
+                        <tr>
+                            <th>Mode</th>
+                            <th class="r">Avg Cost / kg</th>
+                            <th class="r">Avg Cost / CBM</th>
+                            <th class="r">Shipments</th>
+                            <th class="r">Kg data pts</th>
+                            <th class="r">CBM data pts</th>
+                            <th>Rate source</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rates-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div><!-- #app -->
+</main>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const URL_BASE = 'https://prcbzlnwqmtvqqpxwmgg.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2J6bG53cW10dnFxcHh3bWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNDIyNDAsImV4cCI6MjA4ODgxODI0MH0.ujt8r3ZjhZGMYKQNqJJ9a8JNpNXLyr2_wKgq98dxdVc';
+const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+
+const MODES = ['air','sea','express','rail','road'];
+const COST_TYPES = ['freight','fuel','customs','handling','accessorials'];
+const MODE_ICON = { air:'✈️', sea:'🚢', express:'⚡', rail:'🚂', road:'🚛' };
+const MODE_COLOR = { air:'#60a5fa', sea:'#34d399', express:'#f97316', rail:'#a78bfa', road:'#fbbf24' };
+const COST_TYPE_COLOR = { freight:'#f97316', fuel:'#ef4444', customs:'#a855f7', handling:'#14b8a6', accessorials:'#eab308' };
+const MIN_CONFIDENCE = 3; // min shipments to use dest-specific rate
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let ALL_SHIPMENTS = []; // enriched with costs, total_cny, bwkg, bcbm
+let WAREHOUSES    = []; // from warehouse_locations
+let RATES         = {}; // computed historical rates
+let DISPLAY_CCY   = 'cny';
+let FX_RATES      = { USD:1, CNY:7.25, EUR:0.92, GBP:0.79, AUD:1.53, CAD:1.36 };
+
+// ── FX ────────────────────────────────────────────────────────────────────────
+async function fetchFXRates() {
+    try {
+        const r = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' });
+        if (r.ok) { const d = await r.json(); if (d.rates) FX_RATES = { USD:1, ...d.rates }; }
+    } catch(_) {}
+}
+function toUSD(cny) { return cny / (FX_RATES.CNY || 7.25); }
+function dispAmt(cny) { return DISPLAY_CCY === 'usd' ? toUSD(cny) : cny; }
+function dispLabel()  { return DISPLAY_CCY === 'usd' ? 'USD' : 'CNY'; }
+function fmtAmt(v)    { return v == null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+function fmtPrec(v,d=2) { return v == null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function setCurrency(ccy) {
+    DISPLAY_CCY = ccy;
+    document.querySelectorAll('.ccy-btn').forEach(b => b.classList.toggle('active', b.dataset.ccy === ccy));
+    calculate();
+}
+
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
+async function fetchAll(table, select, extra = {}) {
+    const PAGE = 1000; let rows = [], offset = 0;
+    while (true) {
+        const u = new URL(`${URL_BASE}/rest/v1/${table}`);
+        u.searchParams.set('select', select);
+        u.searchParams.set('limit', PAGE);
+        u.searchParams.set('offset', offset);
+        for (const [k,v] of Object.entries(extra)) u.searchParams.set(k, v);
+        const r = await fetch(u, { headers: HEADERS, cache: 'no-store' });
+        if (!r.ok) throw new Error(`${table}: ${r.status}`);
+        const page = await r.json();
+        rows = rows.concat(page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+    }
+    return rows;
+}
+
+// ── Rate computation ──────────────────────────────────────────────────────────
+function avg(arr) { return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : null; }
+function groupBy(arr, fn) { return arr.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
+
+function computeModeRates(ships) {
+    const kgShips  = ships.filter(s => s.bwkg  > 0 && s.total_cny > 0);
+    const cbmShips = ships.filter(s => s.bcbm  > 0 && s.total_cny > 0);
+    const cpkg     = kgShips.length  ? avg(kgShips.map(s  => s.total_cny / s.bwkg))  : null;
+    const cpcbm    = cbmShips.length ? avg(cbmShips.map(s => s.total_cny / s.bcbm)) : null;
+
+    // Cost type ratios (for the split chart)
+    const allCosts = ships.flatMap(s => s.costs);
+    const typeTotal = allCosts.reduce((s,c) => s + (parseFloat(c.amount)||0), 0);
+    const typeRatios = {};
+    COST_TYPES.forEach(t => {
+        const sum = allCosts.filter(c=>c.cost_type===t).reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+        typeRatios[t] = typeTotal > 0 ? sum/typeTotal : 0;
+    });
+
+    return { cpkg, cpcbm, count: ships.length, kgCount: kgShips.length, cbmCount: cbmShips.length, typeRatios };
+}
+
+function computeAllRates(shipments) {
+    const rates = {};
+    MODES.forEach(mode => {
+        const mShips = shipments.filter(s => s.mode === mode && s.costs.length > 0);
+        rates[mode] = computeModeRates(mShips);
+        rates[mode].byDest = {};
+        Object.entries(groupBy(mShips, s => s.destination_id)).forEach(([destId, ships]) => {
+            if (destId && ships.length >= MIN_CONFIDENCE)
+                rates[mode].byDest[destId] = computeModeRates(ships);
+        });
+    });
+    return rates;
+}
+
+// ── Estimate ──────────────────────────────────────────────────────────────────
+function getRate(mode, destId) {
+    // Use dest-specific rate if enough data, else global
+    const r = RATES[mode];
+    if (!r) return null;
+    if (destId && r.byDest?.[destId]) return { ...r.byDest[destId], sourceLabel: 'dest-specific' };
+    return { ...r, sourceLabel: 'global avg' };
+}
+
+function estimateMode(mode, totalCBM, totalWeightKg, destId) {
+    const r = getRate(mode, destId);
+    if (!r || r.count === 0) return null;
+
+    let cost = null, method = null, chargeableWeight = totalWeightKg;
+
+    if (mode === 'air' || mode === 'express') {
+        const volWeight = totalCBM * 167; // IATA volumetric: L*W*H/6000 = CBM*167
+        chargeableWeight = Math.max(totalWeightKg, volWeight);
+        if (r.cpkg != null) { cost = r.cpkg * chargeableWeight; method = `${fmtPrec(chargeableWeight,1)} kg chargeable`; }
+        else if (r.cpcbm != null) { cost = r.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
+    } else {
+        // Sea / rail / road — CBM-first
+        if (r.cpcbm != null) { cost = r.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
+        else if (r.cpkg != null) { cost = r.cpkg * totalWeightKg; method = `${fmtPrec(totalWeightKg,1)} kg`; chargeableWeight = totalWeightKg; }
+    }
+
+    if (cost == null) return null;
+    return { cost, method, chargeableWeight, rate: r };
+}
+
+// ── Main calculate ────────────────────────────────────────────────────────────
+function calculate() {
+    const l = parseFloat(document.getElementById('dim-l').value) || 0;
+    const w = parseFloat(document.getElementById('dim-w').value) || 0;
+    const h = parseFloat(document.getElementById('dim-h').value) || 0;
+    const kg = parseFloat(document.getElementById('weight').value) || 0;
+    const qty = Math.max(1, parseInt(document.getElementById('qty').value) || 1);
+    const destId = document.getElementById('dest').value;
+
+    // Computed metrics
+    const cbmPerCarton = l && w && h ? (l * w * h) / 1e6 : 0;
+    const totalCBM     = cbmPerCarton * qty;
+    const totalWeight  = kg * qty;
+    const volWeightAir = totalCBM * 167;
+
+    document.getElementById('m-cbm-per').textContent   = cbmPerCarton ? fmtPrec(cbmPerCarton, 4) : '—';
+    document.getElementById('m-cbm-total').textContent = totalCBM     ? fmtPrec(totalCBM, 3)     : '—';
+    document.getElementById('m-weight-actual').textContent = totalWeight ? fmtPrec(totalWeight, 1) : '—';
+    document.getElementById('m-weight-vol').textContent    = volWeightAir ? fmtPrec(volWeightAir, 1) : '—';
+
+    const chargeableNote = document.getElementById('m-chargeable-note');
+    if (volWeightAir && totalWeight) {
+        const dominant = volWeightAir > totalWeight ? 'vol. weight dominates' : 'actual weight dominates';
+        chargeableNote.textContent = `→ ${dominant} for air`;
+    } else {
+        chargeableNote.textContent = '';
+    }
+
+    if (!cbmPerCarton || !totalWeight) {
+        renderModeGrid(null, null);
+        return;
+    }
+
+    // Compute estimates per mode
+    const estimates = {};
+    MODES.forEach(m => {
+        estimates[m] = estimateMode(m, totalCBM, totalWeight, destId);
+    });
+
+    renderModeGrid(estimates, destId);
+    renderCostTypeChart(estimates);
+    renderDestComparison(totalCBM, totalWeight, destId);
+    renderRatesTable(destId);
+}
+
+// ── Render mode cards ─────────────────────────────────────────────────────────
+function renderModeGrid(estimates, destId) {
+    if (!estimates) {
+        document.getElementById('mode-grid').innerHTML = `
+            <div class="placeholder" style="grid-column:1/-1">
+                <div class="placeholder-icon">📦</div>
+                Enter carton dimensions and weight above to see estimates
+            </div>`;
+        return;
+    }
+
+    const validEstimates = Object.entries(estimates).filter(([,e]) => e != null);
+    const cheapestMode   = validEstimates.length
+        ? validEstimates.reduce((a,b) => a[1].cost < b[1].cost ? a : b)[0]
+        : null;
+
+    document.getElementById('mode-grid').innerHTML = MODES.map(mode => {
+        const e = estimates[mode];
+        const mColor = MODE_COLOR[mode];
+        const isCheapest = mode === cheapestMode;
+
+        if (!e) {
+            const r = RATES[mode];
+            const reason = !r || r.count === 0 ? 'No historical data' : 'Insufficient rate data';
+            return `<div class="mode-card no-data">
+                <div class="mode-icon">${MODE_ICON[mode]}</div>
+                <div class="mode-name">${mode}</div>
+                <div class="mode-cost" style="font-size:16px;color:var(--muted)">—</div>
+                <div class="mode-detail" style="margin-top:8px">${reason}</div>
+            </div>`;
+        }
+
+        const costDisp = dispAmt(e.cost);
+        const altCost  = DISPLAY_CCY === 'usd' ? `CNY ${fmtAmt(e.cost)}` : `≈ USD ${fmtAmt(toUSD(e.cost))}`;
+        const cpkgDisp = e.rate.cpkg  ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpkg),  2)}/kg`  : null;
+        const cpcbmDisp= e.rate.cpcbm ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpcbm), 2)}/CBM` : null;
+        const confPct  = Math.min(100, (e.rate.count / 20) * 100);
+        const destLabel = e.rate.sourceLabel === 'dest-specific' ? 'Dest-specific rate' : 'Global avg rate';
+
+        return `<div class="mode-card${isCheapest?' cheapest':''}">
+            ${isCheapest ? '<span class="cheapest-badge">Cheapest</span>' : ''}
+            <div class="mode-icon">${MODE_ICON[mode]}</div>
+            <div class="mode-name">${mode}</div>
+            <div class="mode-cost" style="color:${mColor}">${dispLabel()} ${fmtAmt(costDisp)}</div>
+            <div class="mode-cost-alt">${altCost}</div>
+            <div class="mode-detail">
+                <strong>Basis:</strong> ${e.method}<br>
+                ${cpkgDisp  ? `<strong>Rate/kg:</strong> ${cpkgDisp}<br>` : ''}
+                ${cpcbmDisp ? `<strong>Rate/CBM:</strong> ${cpcbmDisp}<br>` : ''}
+                <strong>Source:</strong> ${destLabel}
+            </div>
+            <div class="confidence">
+                <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%;background:${mColor}"></div></div>
+                <span class="conf-label">${e.rate.count} shipment${e.rate.count!==1?'s':''}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ── Cost type split chart ─────────────────────────────────────────────────────
+let ctChart = null;
+function renderCostTypeChart(estimates) {
+    const container = document.getElementById('ct-chart-container');
+    if (!estimates) {
+        container.innerHTML = `<div class="placeholder"><div class="placeholder-icon">📊</div>Enter dimensions to see breakdown</div>`;
+        return;
+    }
+
+    const modesWithData = MODES.filter(m => estimates[m] && estimates[m].rate.count > 0);
+    if (!modesWithData.length) return;
+
+    // Build stacked chart: each dataset is a cost type, each label is a mode
+    const labels   = modesWithData.map(m => m.charAt(0).toUpperCase() + m.slice(1));
+    const datasets = COST_TYPES.map(t => ({
+        label: t.charAt(0).toUpperCase() + t.slice(1),
+        data:  modesWithData.map(m => {
+            const e = estimates[m];
+            return e ? +(dispAmt(e.cost) * (e.rate.typeRatios?.[t] || 0)).toFixed(0) : 0;
+        }),
+        backgroundColor: COST_TYPE_COLOR[t] + 'cc',
+        borderColor:     COST_TYPE_COLOR[t],
+        borderWidth: 1, borderRadius: 3,
+    }));
+
+    container.innerHTML = '<div class="ct-chart-wrap"><canvas id="ct-canvas"></canvas></div>';
+
+    if (ctChart) { ctChart.destroy(); ctChart = null; }
+
+    const TOOLTIP = { backgroundColor:'#1e2235', borderColor:'#2a2f45', borderWidth:1,
+                      titleColor:'#e2e8f0', bodyColor:'#7c87a0', padding:10 };
+
+    ctChart = new Chart(document.getElementById('ct-canvas'), {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display:true, position:'bottom', labels:{boxWidth:10,padding:12,color:'#7c87a0'} },
+                tooltip: { ...TOOLTIP, callbacks: { label: ctx => `${ctx.dataset.label}: ${dispLabel()} ${fmtAmt(ctx.parsed.y)}` } }
+            },
+            scales: {
+                x: { stacked:true, grid:{ color:'#2a2f4550' } },
+                y: { stacked:true, grid:{ color:'#2a2f4550' }, ticks:{ callback: v => `${dispLabel()} ${fmtAmt(v)}` },
+                     title:{ display:true, text:`Estimated Cost (${dispLabel()})`, color:'#7c87a0', font:{size:11} } }
+            }
+        }
+    });
+}
+
+// ── Destination comparison ────────────────────────────────────────────────────
+function renderDestComparison(totalCBM, totalWeight, selectedDest) {
+    const container = document.getElementById('dest-comparison');
+    const sub = document.getElementById('dest-comp-sub');
+
+    if (!WAREHOUSES.length) {
+        container.innerHTML = `<div class="placeholder"><div class="placeholder-icon">🌍</div>No warehouse data available</div>`;
+        return;
+    }
+
+    // For each warehouse, find cheapest mode estimate
+    const rows = WAREHOUSES.map(wh => {
+        const ests = {};
+        MODES.forEach(m => { ests[m] = estimateMode(m, totalCBM, totalWeight, wh.id); });
+        const validEsts = Object.entries(ests).filter(([,e]) => e != null);
+        if (!validEsts.length) return null;
+        const [cheapMode, cheapEst] = validEsts.reduce((a,b) => a[1].cost < b[1].cost ? a : b);
+        return { wh, ests, cheapMode, cheapCost: cheapEst.cost };
+    }).filter(Boolean);
+
+    if (!rows.length) {
+        container.innerHTML = `<div class="placeholder"><div class="placeholder-icon">🌍</div>No estimate data for warehouses</div>`;
+        return;
+    }
+
+    rows.sort((a,b) => a.cheapCost - b.cheapCost);
+    const overallCheapest = rows[0];
+    sub.textContent = `Cheapest mode per warehouse · ${rows.length} destination${rows.length!==1?'s':''}`;
+
+    const modeHeader = MODES.filter(m => rows.some(r => r.ests[m] != null));
+
+    container.innerHTML = `<div style="overflow-x:auto"><table class="dest-table">
+        <thead><tr>
+            <th>Warehouse</th>
+            ${modeHeader.map(m=>`<th class="r" style="color:${MODE_COLOR[m]}">${MODE_ICON[m]} ${m.charAt(0).toUpperCase()+m.slice(1)}</th>`).join('')}
+            <th class="r">Cheapest</th>
+        </tr></thead>
+        <tbody>
+        ${rows.map(row => {
+            const isCheapest = row === overallCheapest;
+            const isSelected = row.wh.id === selectedDest;
+            return `<tr class="${isCheapest?'cheapest-row':''}${isSelected?' selected-row':''}">
+                <td style="font-weight:600">${row.wh.warehouse_name || row.wh.country || row.wh.id.slice(0,8)}
+                    ${isCheapest ? '<span class="best-badge">Cheapest</span>' : ''}
+                    ${isSelected ? '<span class="best-badge" style="background:rgba(96,165,250,.15);color:#60a5fa">Selected</span>' : ''}
+                </td>
+                ${modeHeader.map(m => {
+                    const e = row.ests[m];
+                    if (!e) return `<td class="r" style="color:var(--muted);font-size:12px">—</td>`;
+                    const isRowCheapest = m === row.cheapMode;
+                    return `<td class="r" style="${isRowCheapest?'font-weight:700;color:'+MODE_COLOR[m]:'color:var(--muted);font-size:12px'}">
+                        ${dispLabel()} ${fmtAmt(dispAmt(e.cost))}
+                    </td>`;
+                }).join('')}
+                <td class="r" style="font-weight:600;color:${MODE_COLOR[row.cheapMode]}">
+                    ${MODE_ICON[row.cheapMode]} ${dispLabel()} ${fmtAmt(dispAmt(row.cheapCost))}
+                </td>
+            </tr>`;
+        }).join('')}
+        </tbody>
+    </table></div>`;
+}
+
+// ── Historical rates table ────────────────────────────────────────────────────
+function renderRatesTable(selectedDest) {
+    const sub = document.getElementById('rates-basis-sub');
+    const tbody = document.getElementById('rates-tbody');
+
+    const totalShips = Object.values(RATES).reduce((s,r) => s + r.count, 0);
+    sub.textContent = `Based on ${totalShips} historical shipments with cost data`;
+
+    tbody.innerHTML = MODES.map(mode => {
+        const global = RATES[mode];
+        const dest   = selectedDest && RATES[mode]?.byDest?.[selectedDest];
+        const active = dest || global;
+        const isDestSpecific = !!dest;
+
+        if (!active) return `<tr><td>${mode.charAt(0).toUpperCase()+mode.slice(1)}</td>
+            <td class="r no-data-cell" colspan="5">No data</td></tr>`;
+
+        const cpkgCNY  = active.cpkg  ? `CNY ${fmtPrec(active.cpkg,  2)}/kg`  : '—';
+        const cpcbmCNY = active.cpcbm ? `CNY ${fmtPrec(active.cpcbm, 2)}/CBM` : '—';
+
+        return `<tr>
+            <td style="color:${MODE_COLOR[mode]}">${MODE_ICON[mode]} ${mode.charAt(0).toUpperCase()+mode.slice(1)}</td>
+            <td class="r">${cpkgCNY}</td>
+            <td class="r">${cpcbmCNY}</td>
+            <td class="r">${active.count}</td>
+            <td class="r">${active.kgCount}</td>
+            <td class="r">${active.cbmCount}</td>
+            <td style="font-size:11px;color:var(--muted)">
+                ${isDestSpecific ? '📍 Dest-specific' : '🌐 Global avg'}
+                ${isDestSpecific && global ? ` (global: ${global.count} ships)` : ''}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+    await fetchFXRates();
+
+    const [shipments, costs, locations] = await Promise.all([
+        fetchAll('shipments',
+            'id,mode,status,destination_id,total_weight_kg,total_cbm',
+            { archived_at: 'is.null' }),
+        fetchAll('shipment_costs',
+            'id,shipment_id,cost_type,amount,currency,billed_weight_kg,billed_cbm',
+            { archived_at: 'is.null' }),
+        fetchAll('warehouse_locations', 'id,warehouse_name,operator,country', {})
+            .catch(() => []),
+    ]);
+
+    // Enrich shipments with costs
+    const costsByShipment = costs.reduce((m,c) => {
+        (m[c.shipment_id] = m[c.shipment_id]||[]).push(c); return m; }, {});
+
+    ALL_SHIPMENTS = shipments.map(s => {
+        const sc       = (costsByShipment[s.id]||[]).filter(c=>!c.archived_at);
+        const total_cny = sc.reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
+        const bwkg     = sc.reduce((sum,c) => sum+(parseFloat(c.billed_weight_kg)||0), 0)
+                         || parseFloat(s.total_weight_kg) || 0;
+        const bcbm     = sc.reduce((sum,c) => sum+(parseFloat(c.billed_cbm)||0), 0)
+                         || parseFloat(s.total_cbm) || 0;
+        return { ...s, costs: sc, total_cny, bwkg, bcbm };
+    });
+
+    WAREHOUSES = locations.filter(l => !l.archived_at);
+    RATES      = computeAllRates(ALL_SHIPMENTS);
+
+    // Populate destination dropdown
+    const sel = document.getElementById('dest');
+    WAREHOUSES.forEach(w => {
+        const opt = document.createElement('option');
+        opt.value = w.id;
+        opt.textContent = w.warehouse_name || w.operator || w.country || w.id.slice(0,8);
+        sel.appendChild(opt);
+    });
+
+    // Update header
+    const shipCount = ALL_SHIPMENTS.filter(s=>s.costs.length>0).length;
+    document.getElementById('hdr-sub').textContent =
+        `Based on ${shipCount} historical shipments · rates in CNY`;
+
+    const now = new Date().toLocaleString('en-ZA',{ timeZone:'Africa/Johannesburg',
+        day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    document.getElementById('last-updated').innerHTML = `Updated<br><strong>${now} SAST</strong>`;
+
+    // Show app
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display     = 'block';
+
+    // Render baseline rates table
+    renderRatesTable('');
+}
+
+init().catch(err => {
+    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('error-box');
+    el.style.display = 'block';
+    el.textContent   = `Could not load data: ${err.message}`;
+    console.error(err);
+});
+</script>
+</body>
+</html>
