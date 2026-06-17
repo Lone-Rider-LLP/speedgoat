@@ -1040,8 +1040,8 @@ async function init() {
 
     // Try to resolve destination names from warehouse_locations
     try {
-        const locs = await fetchAll('warehouse_locations', 'id,name,code,country', {});
-        locs.forEach(l => { DEST_MAP[l.id] = l.name || l.code || l.country || l.id.slice(0,8); });
+        const locs = await fetchAll('warehouse_locations', 'id,warehouse_name,operator,country', {});
+        locs.forEach(l => { DEST_MAP[l.id] = l.warehouse_name || l.operator || l.country || l.id.slice(0,8); });
     } catch(_) { /* no access yet — will show truncated UUIDs */ }
 
     applyFilters();
