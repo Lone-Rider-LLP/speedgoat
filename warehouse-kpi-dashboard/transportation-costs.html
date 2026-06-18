@@ -601,7 +601,15 @@ function applyFilters() {
         .map(s => {
             const costs     = (costsByShipment[s.id] || []).filter(c => !c.archived_at);
             const total_cny = costs.reduce((sum,c) => sum + (parseFloat(c.amount)||0), 0);
-            const total_usd = costs.reduce((sum,c) => sum + (toUSD(parseFloat(c.amount)||0, c.currency)||0), 0);
+            // Use the FX rate locked in at time of shipment where available; live rate as fallback
+            const total_usd = costs.reduce((sum,c) => {
+                const amt  = parseFloat(c.amount) || 0;
+                const occy = (c.original_currency || '').toUpperCase();
+                const fx   = parseFloat(c.fx_rate);
+                if (occy === 'USD' && c.original_amount != null) return sum + (parseFloat(c.original_amount) || 0);
+                if ((c.currency||'').toUpperCase() === 'CNY' && fx > 0) return sum + (amt / fx);
+                return sum + (toUSD(amt, c.currency) || 0);
+            }, 0);
             const bwkg      = costs.reduce((sum,c) => sum + (parseFloat(c.billed_weight_kg)||0), 0)
                               || parseFloat(s.total_weight_kg) || null;
             const bcbm      = costs.reduce((sum,c) => sum + (parseFloat(c.billed_cbm)||0), 0)

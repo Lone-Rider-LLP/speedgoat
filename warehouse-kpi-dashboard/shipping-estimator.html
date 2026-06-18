@@ -315,6 +315,7 @@
                             <th>Mode</th>
                             <th class="r">Avg Freight / kg</th>
                             <th class="r">Avg Freight / CBM</th>
+                            <th class="r">Accessorials</th>
                             <th class="r">Shipments</th>
                             <th class="r">Kg data pts</th>
                             <th class="r">CBM data pts</th>
@@ -406,7 +407,12 @@ function computeModeRates(ships) {
         typeRatios[t] = typeTotal > 0 ? sum/typeTotal : 0;
     });
 
-    return { cpkg, cpcbm, count: ships.length, kgCount: kgShips.length, cbmCount: cbmShips.length, typeRatios };
+    // Accessorial ratio: accessorials as a % of freight (per lane historically)
+    const freightTotal      = allCosts.filter(c=>c.cost_type==='freight').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const accessorialTotal  = allCosts.filter(c=>c.cost_type==='accessorials').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const accessorialRatio  = freightTotal > 0 && accessorialTotal > 0 ? accessorialTotal / freightTotal : null;
+
+    return { cpkg, cpcbm, count: ships.length, kgCount: kgShips.length, cbmCount: cbmShips.length, typeRatios, accessorialRatio };
 }
 
 function computeAllRates(shipments) {
@@ -450,7 +456,9 @@ function estimateMode(mode, totalCBM, totalWeightKg, destId) {
     }
 
     if (cost == null) return null;
-    return { cost, method, chargeableWeight, rate: r };
+    const accessorialCost  = r.accessorialRatio != null ? cost * r.accessorialRatio : null;
+    const accessorialRatio = r.accessorialRatio;
+    return { cost, accessorialCost, accessorialRatio, method, chargeableWeight, rate: r };
 }
 
 // ── Main calculate ────────────────────────────────────────────────────────────
@@ -532,23 +540,30 @@ function renderModeGrid(estimates, destId) {
             </div>`;
         }
 
-        const costDisp = dispAmt(e.cost);
-        const altCost  = DISPLAY_CCY === 'usd' ? `CNY ${fmtAmt(e.cost)}` : `≈ USD ${fmtAmt(toUSD(e.cost))}`;
-        const cpkgDisp = e.rate.cpkg  ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpkg),  2)}/kg`  : null;
-        const cpcbmDisp= e.rate.cpcbm ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpcbm), 2)}/CBM` : null;
-        const confPct  = Math.min(100, (e.rate.count / 20) * 100);
-        const destLabel = e.rate.sourceLabel === 'dest-specific' ? 'Dest-specific rate' : 'Global avg rate';
+        const freightDisp     = dispAmt(e.cost);
+        const accessDisp      = e.accessorialCost != null ? dispAmt(e.accessorialCost) : null;
+        const totalDisp       = accessDisp != null ? freightDisp + accessDisp : freightDisp;
+        const altTotal        = DISPLAY_CCY === 'usd' ? `CNY ${fmtAmt(e.cost + (e.accessorialCost||0))}` : `≈ USD ${fmtAmt(toUSD(e.cost + (e.accessorialCost||0)))}`;
+        const cpkgDisp        = e.rate.cpkg  ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpkg),  2)}/kg`  : null;
+        const cpcbmDisp       = e.rate.cpcbm ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpcbm), 2)}/CBM` : null;
+        const confPct         = Math.min(100, (e.rate.count / 20) * 100);
+        const destLabel       = e.rate.sourceLabel === 'dest-specific' ? 'Dest-specific rate' : 'Global avg rate';
+        const accPct          = e.accessorialRatio != null ? (e.accessorialRatio * 100).toFixed(1) : null;
 
         return `<div class="mode-card${isCheapest?' cheapest':''}">
             ${isCheapest ? '<span class="cheapest-badge">Cheapest</span>' : ''}
             <div class="mode-icon">${MODE_ICON[mode]}</div>
             <div class="mode-name">${mode}</div>
-            <div class="mode-cost" style="color:${mColor}">${dispLabel()} ${fmtAmt(costDisp)}</div>
-            <div class="mode-cost-alt">${altCost}</div>
+            <div class="mode-cost" style="color:${mColor}">${dispLabel()} ${fmtAmt(totalDisp)}</div>
+            <div class="mode-cost-alt">${altTotal}</div>
             <div class="mode-detail">
+                <strong>Freight:</strong> ${dispLabel()} ${fmtAmt(freightDisp)}<br>
+                ${accessDisp != null
+                    ? `<strong>Accessorials (${accPct}%):</strong> ${dispLabel()} ${fmtAmt(accessDisp)}<br>`
+                    : `<span style="color:rgba(124,135,160,.5)">Accessorials: no hist. data</span><br>`}
                 <strong>Basis:</strong> ${e.method}<br>
-                ${cpkgDisp  ? `<strong>Rate/kg:</strong> ${cpkgDisp}<br>` : ''}
-                ${cpcbmDisp ? `<strong>Rate/CBM:</strong> ${cpcbmDisp}<br>` : ''}
+                ${cpkgDisp  ? `<strong>Freight rate:</strong> ${cpkgDisp}<br>` : ''}
+                ${cpcbmDisp ? `<strong>Freight rate:</strong> ${cpcbmDisp}<br>` : ''}
                 <strong>Source:</strong> ${destLabel}
             </div>
             <div class="confidence">
@@ -625,8 +640,9 @@ function renderDestComparison(totalCBM, totalWeight, selectedDest) {
         MODES.forEach(m => { ests[m] = estimateMode(m, totalCBM, totalWeight, wh.id); });
         const validEsts = Object.entries(ests).filter(([,e]) => e != null);
         if (!validEsts.length) return null;
-        const [cheapMode, cheapEst] = validEsts.reduce((a,b) => a[1].cost < b[1].cost ? a : b);
-        return { wh, ests, cheapMode, cheapCost: cheapEst.cost };
+        const totalCost = e => e.cost + (e.accessorialCost || 0);
+        const [cheapMode, cheapEst] = validEsts.reduce((a,b) => totalCost(a[1]) < totalCost(b[1]) ? a : b);
+        return { wh, ests, cheapMode, cheapCost: totalCost(cheapEst) };
     }).filter(Boolean);
 
     if (!rows.length) {
@@ -659,8 +675,9 @@ function renderDestComparison(totalCBM, totalWeight, selectedDest) {
                     const e = row.ests[m];
                     if (!e) return `<td class="r" style="color:var(--muted);font-size:12px">—</td>`;
                     const isRowCheapest = m === row.cheapMode;
+                    const tot = e.cost + (e.accessorialCost || 0);
                     return `<td class="r" style="${isRowCheapest?'font-weight:700;color:'+MODE_COLOR[m]:'color:var(--muted);font-size:12px'}">
-                        ${dispLabel()} ${fmtAmt(dispAmt(e.cost))}
+                        ${dispLabel()} ${fmtAmt(dispAmt(tot))}
                     </td>`;
                 }).join('')}
                 <td class="r" style="font-weight:600;color:${MODE_COLOR[row.cheapMode]}">
@@ -737,7 +754,11 @@ function renderWorkings(l, w, h, kgPerCarton, qty, totalCBM, totalWeight, estima
             ${r.cpkg  ? step('Avg freight/kg',  `from ${r.kgCount} shipments`,  `CNY ${fmtPrec(r.cpkg,2)}/kg`) : ''}
             ${r.cpcbm ? step('Avg freight/CBM', `from ${r.cbmCount} shipments`, `CNY ${fmtPrec(r.cpcbm,2)}/CBM`) : ''}
             ${step('Calculation', `${rateLabel} × ${qty2}`, '')}
-            ${step('Estimated total', `=`, `${dispLabel()} ${fmtAmt(dispAmt(e.cost))}`, true)}
+            ${step('Freight estimate', `=`, `${dispLabel()} ${fmtAmt(dispAmt(e.cost))}`)}
+            ${e.accessorialCost != null
+                ? step('Accessorials', `${(e.accessorialRatio*100).toFixed(1)}% of freight (hist.)`, `+ ${dispLabel()} ${fmtAmt(dispAmt(e.accessorialCost))}`)
+                : `<div class="calc-step"><span class="clabel">Accessorials</span><span class="cexpr">no historical data for this lane</span><span class="cval" style="opacity:.4">—</span></div>`}
+            ${step('Total estimate', `freight + accessorials`, `${dispLabel()} ${fmtAmt(dispAmt(e.cost + (e.accessorialCost||0)))}`, true)}
             <div class="calc-note">${r.count} historical shipment${r.count!==1?'s':''} used</div>
         </div>`;
     }).join('');
@@ -789,6 +810,9 @@ function renderRatesTable(selectedDest) {
                     <div class="rate-bar" style="width:${cbmBarW}px;background:${mColor}88"></div>
                     <span class="rate-val">${active.cpcbm ? `CNY ${fmtPrec(active.cpcbm,2)}/CBM` : '<span style="opacity:.4">—</span>'}</span>
                 </div>
+            </td>
+            <td class="r" style="color:${active.accessorialRatio!=null?'var(--text)':'rgba(124,135,160,.4)'}">
+                ${active.accessorialRatio!=null ? `${(active.accessorialRatio*100).toFixed(1)}%` : '—'}
             </td>
             <td class="r">
                 <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
