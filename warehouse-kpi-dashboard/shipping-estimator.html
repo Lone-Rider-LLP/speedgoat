@@ -420,7 +420,9 @@ function computeAllRates(shipments) {
     MODES.forEach(mode => {
         const mShips = shipments.filter(s => s.mode === mode && s.costs.length > 0);
         rates[mode] = computeModeRates(mShips);
-        rates[mode].byDest = {};
+        rates[mode].byDest     = {};
+        // Track every destination this mode has EVER been used for (any count)
+        rates[mode].byDestUsed = new Set(mShips.map(s => s.destination_id).filter(Boolean));
         Object.entries(groupBy(mShips, s => s.destination_id)).forEach(([destId, ships]) => {
             if (destId && ships.length >= MIN_CONFIDENCE)
                 rates[mode].byDest[destId] = computeModeRates(ships);
@@ -439,26 +441,30 @@ function getRate(mode, destId) {
 }
 
 function estimateMode(mode, totalCBM, totalWeightKg, destId) {
-    const r = getRate(mode, destId);
+    const r = RATES[mode];
     if (!r || r.count === 0) return null;
+    // If a specific destination is selected, only show modes that have
+    // actually been used for that lane — avoids e.g. road China→Canada
+    if (destId && r.byDestUsed && !r.byDestUsed.has(destId)) return null;
+    const rate = getRate(mode, destId);
 
     let cost = null, method = null, chargeableWeight = totalWeightKg;
 
     if (mode === 'air' || mode === 'express') {
         const volWeight = totalCBM * 167; // IATA volumetric: L*W*H/6000 = CBM*167
         chargeableWeight = Math.max(totalWeightKg, volWeight);
-        if (r.cpkg != null) { cost = r.cpkg * chargeableWeight; method = `${fmtPrec(chargeableWeight,1)} kg chargeable`; }
-        else if (r.cpcbm != null) { cost = r.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
+        if (rate.cpkg != null) { cost = rate.cpkg * chargeableWeight; method = `${fmtPrec(chargeableWeight,1)} kg chargeable`; }
+        else if (rate.cpcbm != null) { cost = rate.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
     } else {
         // Sea / rail / road — CBM-first
-        if (r.cpcbm != null) { cost = r.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
-        else if (r.cpkg != null) { cost = r.cpkg * totalWeightKg; method = `${fmtPrec(totalWeightKg,1)} kg`; chargeableWeight = totalWeightKg; }
+        if (rate.cpcbm != null) { cost = rate.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
+        else if (rate.cpkg != null) { cost = rate.cpkg * totalWeightKg; method = `${fmtPrec(totalWeightKg,1)} kg`; chargeableWeight = totalWeightKg; }
     }
 
     if (cost == null) return null;
-    const accessorialCost  = r.accessorialRatio != null ? cost * r.accessorialRatio : null;
-    const accessorialRatio = r.accessorialRatio;
-    return { cost, accessorialCost, accessorialRatio, method, chargeableWeight, rate: r };
+    const accessorialCost  = rate.accessorialRatio != null ? cost * rate.accessorialRatio : null;
+    const accessorialRatio = rate.accessorialRatio;
+    return { cost, accessorialCost, accessorialRatio, method, chargeableWeight, rate };
 }
 
 // ── Main calculate ────────────────────────────────────────────────────────────
@@ -531,12 +537,15 @@ function renderModeGrid(estimates, destId) {
 
         if (!e) {
             const r = RATES[mode];
-            const reason = !r || r.count === 0 ? 'No historical data' : 'Insufficient rate data';
+            const neverUsedForDest = destId && r?.byDestUsed && !r.byDestUsed.has(destId);
+            const reason = neverUsedForDest
+                ? 'Not used for this destination'
+                : (!r || r.count === 0 ? 'No historical data' : 'Insufficient rate data');
             return `<div class="mode-card no-data">
                 <div class="mode-icon">${MODE_ICON[mode]}</div>
                 <div class="mode-name">${mode}</div>
                 <div class="mode-cost" style="font-size:16px;color:var(--muted)">—</div>
-                <div class="mode-detail" style="margin-top:8px">${reason}</div>
+                <div class="mode-detail" style="margin-top:8px;font-size:11px">${reason}</div>
             </div>`;
         }
 
