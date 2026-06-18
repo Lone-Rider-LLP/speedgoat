@@ -341,7 +341,8 @@ const COST_TYPES = ['freight','fuel','customs','handling','accessorials'];
 const MODE_ICON = { air:'✈️', sea:'🚢', express:'⚡', rail:'🚂', road:'🚛' };
 const MODE_COLOR = { air:'#60a5fa', sea:'#34d399', express:'#f97316', rail:'#a78bfa', road:'#fbbf24' };
 const COST_TYPE_COLOR = { freight:'#f97316', fuel:'#ef4444', customs:'#a855f7', handling:'#14b8a6', accessorials:'#eab308' };
-const MIN_CONFIDENCE = 3; // min shipments to use dest-specific rate
+const MIN_CONFIDENCE  = 3;  // min shipments to use dest-specific rate vs global
+const MIN_MODE_COUNT  = 5;  // min shipments for a mode to show any estimate at all
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let ALL_SHIPMENTS = []; // enriched with costs, total_cny, bwkg, bcbm
@@ -442,7 +443,7 @@ function getRate(mode, destId) {
 
 function estimateMode(mode, totalCBM, totalWeightKg, destId) {
     const r = RATES[mode];
-    if (!r || r.count === 0) return null;
+    if (!r || r.count < MIN_MODE_COUNT) return null;
     // If a specific destination is selected, only show modes that have
     // actually been used for that lane — avoids e.g. road China→Canada
     if (destId && r.byDestUsed && !r.byDestUsed.has(destId)) return null;
@@ -540,7 +541,11 @@ function renderModeGrid(estimates, destId) {
             const neverUsedForDest = destId && r?.byDestUsed && !r.byDestUsed.has(destId);
             const reason = neverUsedForDest
                 ? 'Not used for this destination'
-                : (!r || r.count === 0 ? 'No historical data' : 'Insufficient rate data');
+                : (!r || r.count === 0
+                    ? 'No historical data'
+                    : r.count < MIN_MODE_COUNT
+                        ? `Too few shipments (${r.count}) — need ${MIN_MODE_COUNT}+ for a reliable estimate`
+                        : 'Insufficient rate data');
             return `<div class="mode-card no-data">
                 <div class="mode-icon">${MODE_ICON[mode]}</div>
                 <div class="mode-name">${mode}</div>
