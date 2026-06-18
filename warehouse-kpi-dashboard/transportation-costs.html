@@ -340,6 +340,21 @@
                 </div>
             </div>
 
+            <!-- Rate trends -->
+            <div class="section-label" id="s-rate-trend">Rate Trends</div>
+            <div class="row col2">
+                <div class="card">
+                    <div class="card-title">Cost per kg Over Time</div>
+                    <div class="card-subtitle">Monthly avg · by mode · higher = more expensive</div>
+                    <div class="chart-wrap tall"><canvas id="ch-cpkg-trend"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Cost per CBM Over Time</div>
+                    <div class="card-subtitle">Monthly avg · by mode · useful for sea/rail trends</div>
+                    <div class="chart-wrap tall"><canvas id="ch-cpcbm-trend"></canvas></div>
+                </div>
+            </div>
+
             <!-- Shipment detail table -->
             <div class="section-label" id="s-table">Shipment Detail</div>
             <div class="card" style="margin-bottom:0">
@@ -362,6 +377,7 @@
                         <option value="accessorials">Accessorials</option>
                     </select>
                     <span id="row-count"></span>
+                    <button onclick="exportCSV()" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:color .15s,border-color .15s" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">↓ Export CSV</button>
                 </div>
                 <div style="overflow-x:auto">
                     <table class="perf-table" id="main-table">
@@ -631,6 +647,7 @@ function renderAll() {
     renderServiceChart();
     renderDestChart();
     renderEfficiency();
+    renderRateTrends();
     renderTable();
 
     const n = FILTERED.length;
@@ -1014,6 +1031,102 @@ function closeDrawer() {
     document.getElementById('detail-drawer').classList.remove('open');
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+// ── Rate trend charts ─────────────────────────────────────────────────────────
+function renderRateTrends() {
+    const monthKeys = [...new Set(FILTERED.map(r=>monthKey(r.creation_date)).filter(Boolean))].sort();
+    const labels    = monthKeys.map(monthLabel);
+
+    function trendDataset(metricFn, mode) {
+        const byMonth = groupBy(FILTERED.filter(r=>r.mode===mode&&metricFn(r)!=null), r=>monthKey(r.creation_date));
+        return {
+            label:              cap(mode),
+            data:               monthKeys.map(k => { const rs=byMonth[k]||[]; return rs.length?avg(rs.map(metricFn)):null; }),
+            borderColor:        MODE_COLOR[mode],
+            backgroundColor:    MODE_COLOR[mode]+'33',
+            pointBackgroundColor:MODE_COLOR[mode],
+            tension: 0.3, spanGaps: true, borderWidth: 2, pointRadius: 3,
+        };
+    }
+
+    // $/kg chart
+    const kgModes = MODES.filter(m=>FILTERED.some(r=>r.mode===m&&dispCpkg(r)!=null));
+    destroyChart('ch-cpkg-trend');
+    if (monthKeys.length >= 2 && kgModes.length) {
+        new Chart(document.getElementById('ch-cpkg-trend'), { type:'line',
+            data:{ labels, datasets: kgModes.map(m=>trendDataset(r=>dispCpkg(r),m)) },
+            options:{ responsive:true, maintainAspectRatio:false,
+                plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:10,padding:14,color:'#7c87a0'}},
+                    tooltip:merge(TOOLTIP,{callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmtPrecise(ctx.parsed.y)} ${dispLabel()}/kg`}}) },
+                scales:{ x:{...SCALES.x}, y:{...SCALES.y, ticks:{callback:v=>fmtPrecise(v)},
+                    title:{display:true,text:`${dispLabel()}/kg`,color:'#7c87a0',font:{size:11}}} } } });
+    } else {
+        document.getElementById('ch-cpkg-trend').closest('.chart-wrap').innerHTML =
+            emptyState(monthKeys.length < 2 ? 'Need 2+ months of data' : 'No weight-based shipments');
+    }
+
+    // $/CBM chart
+    const cbmModes = MODES.filter(m=>FILTERED.some(r=>r.mode===m&&dispCpcbm(r)!=null));
+    destroyChart('ch-cpcbm-trend');
+    if (monthKeys.length >= 2 && cbmModes.length) {
+        new Chart(document.getElementById('ch-cpcbm-trend'), { type:'line',
+            data:{ labels, datasets: cbmModes.map(m=>trendDataset(r=>dispCpcbm(r),m)) },
+            options:{ responsive:true, maintainAspectRatio:false,
+                plugins:{ legend:{display:true,position:'bottom',labels:{boxWidth:10,padding:14,color:'#7c87a0'}},
+                    tooltip:merge(TOOLTIP,{callbacks:{label:ctx=>`${ctx.dataset.label}: ${fmtAmt(ctx.parsed.y)} ${dispLabel()}/CBM`}}) },
+                scales:{ x:{...SCALES.x}, y:{...SCALES.y, ticks:{callback:v=>fmtAmt(v)},
+                    title:{display:true,text:`${dispLabel()}/CBM`,color:'#7c87a0',font:{size:11}}} } } });
+    } else {
+        document.getElementById('ch-cpcbm-trend').closest('.chart-wrap').innerHTML =
+            emptyState(monthKeys.length < 2 ? 'Need 2+ months of data' : 'No CBM-based shipments');
+    }
+}
+
+// ── CSV Export ────────────────────────────────────────────────────────────────
+function exportCSV() {
+    const search = document.getElementById('tbl-search').value.toLowerCase().replace(/^#+/,'');
+    const modeF  = document.getElementById('tbl-mode').value;
+    const ctypeF = document.getElementById('tbl-ctype').value;
+    const ccy    = dispLabel();
+
+    const rows = FILTERED.filter(r => {
+        if (modeF  && r.mode  !== modeF)  return false;
+        if (ctypeF && !r.costs.some(c=>c.cost_type===ctypeF)) return false;
+        if (search) {
+            const h=[r.shipment_number||'',r.carrier||'',r.container_number||'',
+                r.bill_of_lading||'',r.tracking_reference||'',r.destName||''].join(' ').toLowerCase();
+            if (!h.includes(search)) return false;
+        }
+        return true;
+    });
+
+    const costSum = (r, type) => r.costs.filter(c=>c.cost_type===type).reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const headers = ['Shipment #','Mode','Service','Status','Carrier','Destination','Created','Delivered',
+        'Weight (kg)','CBM',`Total (${ccy})`, 'Total CNY','Total USD','Cost/kg','Freight (CNY)',
+        'Fuel (CNY)','Customs (CNY)','Handling (CNY)','Accessorials (CNY)'];
+
+    const csvRows = rows.map(r => [
+        r.shipment_number||'', r.mode||'', r.service_type||'', r.status||'',
+        r.carrier||'', r.destName||'', r.creation_date||'', r.actual_delivery_date||'',
+        r.total_weight_kg!=null?Number(r.total_weight_kg).toFixed(2):'',
+        r.total_cbm!=null?Number(r.total_cbm).toFixed(3):'',
+        dispTotal(r)!=null?dispTotal(r).toFixed(0):'',
+        r.total_cny!=null?r.total_cny.toFixed(0):'',
+        r.total_usd!=null?r.total_usd.toFixed(2):'',
+        dispCpkg(r)!=null?dispCpkg(r).toFixed(2):'',
+        costSum(r,'freight').toFixed(0), costSum(r,'fuel').toFixed(0),
+        costSum(r,'customs').toFixed(0), costSum(r,'handling').toFixed(0),
+        costSum(r,'accessorials').toFixed(0),
+    ].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','));
+
+    const csv  = [headers.map(h=>`"${h}"`).join(','), ...csvRows].join('\n');
+    const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), {
+        href: url, download: `transportation-costs-${new Date().toISOString().slice(0,10)}.csv`
+    });
+    a.click(); URL.revokeObjectURL(url);
+}
 
 // ── Empty state helper ────────────────────────────────────────────────────────
 function emptyState(msg) {
