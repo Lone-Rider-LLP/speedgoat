@@ -319,7 +319,7 @@
                             <th class="r">Costed</th>
                             <th class="r">Kg data pts</th>
                             <th class="r">CBM data pts</th>
-                            <th class="r" style="color:#fbbf24">Missing weight</th>
+                            <th class="r" style="color:#fbbf24">Data gaps</th>
                             <th>Rate source</th>
                         </tr>
                     </thead>
@@ -839,11 +839,16 @@ function renderRatesTable(selectedDest) {
             </td>
             <td class="r" style="color:var(--muted)">${active.kgCount}</td>
             <td class="r" style="color:var(--muted)">${active.cbmCount}</td>
-            <td class="r" style="color:${active.count - active.kgCount > 0 ? '#fbbf24' : 'var(--muted)'}">
-                ${active.count - active.kgCount > 0
-                    ? `⚠ ${active.count - active.kgCount}`
-                    : `<span style="color:var(--muted)">—</span>`}
-            </td>
+            <td class="r" style="font-size:12px">${(() => {
+                const isWeightMode = ['air','express'].includes(mode);
+                const missing = isWeightMode
+                    ? active.count - active.kgCount   // air/express: flag missing weight
+                    : active.count - active.cbmCount; // sea/rail/road: flag missing CBM
+                const label = isWeightMode ? 'missing weight' : 'missing CBM';
+                return missing > 0
+                    ? `<span title="${missing} shipments ${label}" style="color:#fbbf24">⚠ ${missing}</span>`
+                    : `<span style="color:var(--muted)">—</span>`;
+            })()}</td>
             <td style="font-size:11px;color:var(--muted)">
                 ${isDestSpecific ? `📍 Dest-specific${globalNote}` : '🌐 Global avg'}
             </td>
