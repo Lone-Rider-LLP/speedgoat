@@ -316,9 +316,10 @@
                             <th class="r">Avg Freight / kg</th>
                             <th class="r">Avg Freight / CBM</th>
                             <th class="r">Accessorials</th>
-                            <th class="r">Shipments</th>
+                            <th class="r">Costed</th>
                             <th class="r">Kg data pts</th>
                             <th class="r">CBM data pts</th>
+                            <th class="r" style="color:#fbbf24">Missing weight</th>
                             <th>Rate source</th>
                         </tr>
                     </thead>
@@ -803,7 +804,7 @@ function renderRatesTable(selectedDest) {
 
         if (!active || active.count === 0) return `<tr>
             <td style="color:${mColor}">${MODE_ICON[mode]} ${mode.charAt(0).toUpperCase()+mode.slice(1)}</td>
-            <td colspan="6" class="no-data-cell" style="font-size:12px">No historical data</td>
+            <td colspan="7" class="no-data-cell" style="font-size:12px">No historical data</td>
         </tr>`;
 
         const kgBarW   = active.cpkg  ? Math.round((active.cpkg/maxCpkg)*80)   : 0;
@@ -838,6 +839,11 @@ function renderRatesTable(selectedDest) {
             </td>
             <td class="r" style="color:var(--muted)">${active.kgCount}</td>
             <td class="r" style="color:var(--muted)">${active.cbmCount}</td>
+            <td class="r" style="color:${active.count - active.kgCount > 0 ? '#fbbf24' : 'var(--muted)'}">
+                ${active.count - active.kgCount > 0
+                    ? `⚠ ${active.count - active.kgCount}`
+                    : `<span style="color:var(--muted)">—</span>`}
+            </td>
             <td style="font-size:11px;color:var(--muted)">
                 ${isDestSpecific ? `📍 Dest-specific${globalNote}` : '🌐 Global avg'}
             </td>
