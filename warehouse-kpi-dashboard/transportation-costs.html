@@ -377,6 +377,7 @@
                         <option value="accessorials">Accessorials</option>
                     </select>
                     <span id="row-count"></span>
+                    <button id="btn-missing" onclick="toggleMissing()" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s">⚠ Missing cost data</button>
                     <button onclick="exportCSV()" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:color .15s,border-color .15s" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">↓ Export CSV</button>
                 </div>
                 <div style="overflow-x:auto">
@@ -439,6 +440,7 @@ let G = {
 };
 let _sort = { col: 'creation_date', dir: -1 };
 let _selectedId = null;
+let _missingOnly = false;
 
 // ── FX / display currency ─────────────────────────────────────────────────────
 let DISPLAY_CCY = 'cny';  // 'cny' | 'usd'
@@ -870,6 +872,13 @@ function renderTable() {
                     r.bill_of_lading||'', r.tracking_reference||'', r.destName||''].join(' ').toLowerCase();
                 if (!haystack.includes(search)) return false;
             }
+            if (_missingOnly) {
+                // Show shipments with no cost entries, OR costs but no billed weight or CBM
+                const hasWeight = r.costs.some(c => (parseFloat(c.billed_weight_kg)||0) > 0);
+                const hasCBM    = r.costs.some(c => (parseFloat(c.billed_cbm)||0) > 0);
+                const hasCosts  = r.costs.length > 0;
+                if (hasCosts && hasWeight && hasCBM) return false;  // fully populated, exclude
+            }
             return true;
         })
         .sort((a,b) => {
@@ -929,13 +938,36 @@ function renderTable() {
             <td class="r" style="font-size:12px">${r.total_weight_kg!=null?Number(r.total_weight_kg).toLocaleString():'—'}</td>
             <td class="r" style="font-size:12px">${r.total_cbm!=null?Number(r.total_cbm).toFixed(2):'—'}</td>
             <td class="r" style="font-weight:600">${r.costs.length
-                ? `<div style="font-size:13px">${dispLabel()} ${fmtAmt(dispTotal(r))}</div><div style="font-size:10px;color:var(--muted)">${DISPLAY_CCY==='usd'?'CNY '+fmtAmt(r.total_cny):'≈ USD '+fmtAmt(r.total_usd)}</div>`
-                : '<span style="color:var(--muted)">no data</span>'}</td>
+                ? (() => {
+                    const hasWeight = r.costs.some(c=>(parseFloat(c.billed_weight_kg)||0)>0);
+                    const hasCBM    = r.costs.some(c=>(parseFloat(c.billed_cbm)||0)>0);
+                    const warn      = (!hasWeight || !hasCBM)
+                        ? `<span title="${!hasWeight?'No billed weight. ':''}${!hasCBM?'No billed CBM.':''}" style="color:#fbbf24;font-size:11px;margin-left:4px;cursor:default">⚠</span>` : '';
+                    return `<div style="font-size:13px">${dispLabel()} ${fmtAmt(dispTotal(r))}${warn}</div><div style="font-size:10px;color:var(--muted)">${DISPLAY_CCY==='usd'?'CNY '+fmtAmt(r.total_cny):'≈ USD '+fmtAmt(r.total_usd)}</div>`;
+                })()
+                : '<span style="color:#fbbf24;font-size:11px">⚠ no cost data</span>'}</td>
             <td class="r" style="font-size:12px;color:var(--muted)">${dispCpkg(r)!=null?fmtPrecise(dispCpkg(r))+'<span style="font-size:10px">/kg</span>':'—'}</td>
             <td><div class="cbar-wrap">${cbar}</div></td>
         </tr>`;
     }).join('');
 }
+function toggleMissing() {
+    _missingOnly = !_missingOnly;
+    const btn = document.getElementById('btn-missing');
+    if (_missingOnly) {
+        btn.style.background     = 'rgba(234,179,8,.12)';
+        btn.style.borderColor    = '#eab308';
+        btn.style.color          = '#fbbf24';
+        btn.style.fontWeight     = '600';
+    } else {
+        btn.style.background     = 'var(--surface2)';
+        btn.style.borderColor    = 'var(--border)';
+        btn.style.color          = 'var(--muted)';
+        btn.style.fontWeight     = '';
+    }
+    renderTable();
+}
+
 function setSort(col) {
     if (_sort.col === col) _sort.dir *= -1;
     else { _sort.col = col; _sort.dir = -1; }
