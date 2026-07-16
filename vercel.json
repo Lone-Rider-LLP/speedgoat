@@ -1,3 +1,16 @@
 {
-  "outputDirectory": "warehouse-kpi-dashboard"
+  "outputDirectory": "warehouse-kpi-dashboard",
+  "functions": {
+    "api/page.js": {
+      "includeFiles": "warehouse-kpi-dashboard/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/",                          "destination": "/api/page?p=index" },
+    { "source": "/index.html",                "destination": "/api/page?p=index" },
+    { "source": "/product-catalog.html",      "destination": "/api/page?p=product-catalog" },
+    { "source": "/bundle-mapping.html",       "destination": "/api/page?p=bundle-mapping" },
+    { "source": "/transportation-costs.html", "destination": "/api/page?p=transportation-costs" },
+    { "source": "/shipping-estimator.html",   "destination": "/api/page?p=shipping-estimator" }
+  ]
 }
