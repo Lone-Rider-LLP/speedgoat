@@ -1,9 +1,8 @@
-import { next } from '@vercel/edge';
-
 /**
  * Edge Middleware – runs before every request.
  * Skips /api/auth/* routes (login / callback / logout).
  * All other routes require a valid lr_session cookie.
+ * No external imports — uses Web Crypto API only (built into Edge runtime).
  */
 export const config = {
   // Exclude auth endpoints, static assets, and _vercel internals.
@@ -65,7 +64,7 @@ export default async function middleware(request) {
   const session = request.cookies.get('lr_session')?.value;
 
   if (session && (await verifySession(session))) {
-    return next(); // Authenticated — serve static file normally
+    return; // Authenticated — pass through to origin (serve static file)
   }
 
   // Not authenticated — redirect to login, preserving the original URL
