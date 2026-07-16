@@ -6,8 +6,9 @@ import { next } from '@vercel/edge';
  * All other routes require a valid lr_session cookie.
  */
 export const config = {
-  // Exclude auth endpoints, static assets, and _vercel internals
-  matcher: '/((?!api/auth|_vercel|favicon\\.ico|.*\\.[a-z]{2,4}$).*)',
+  // Exclude auth endpoints, static assets, and _vercel internals.
+  // Note: .html is intentionally NOT excluded — those pages must be protected.
+  matcher: '/((?!api/auth|_vercel|favicon\\.ico|.*\\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map)$).*)',
 };
 
 const SECRET = process.env.SESSION_SECRET;
