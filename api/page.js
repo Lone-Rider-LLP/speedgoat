@@ -44,7 +44,27 @@ function verifySession(cookieValue, secret) {
   }
 }
 
+const OFFLINE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>SpeedGoat</title></head>
+<body style="margin:0;background:#0c0e16;color:#e2e8f0;font-family:-apple-system,sans-serif;
+             display:flex;align-items:center;justify-content:center;height:100vh">
+  <div style="text-align:center">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.18em;color:#f97316;margin-bottom:4px">SPEEDGOAT</div>
+    <h2 style="font-size:18px;font-weight:600;margin:0 0 8px">This URL is no longer active</h2>
+    <p style="color:#7c87a0;font-size:13px">Access the dashboard at <strong style="color:#e2e8f0">speedgoat.lonerider.ai</strong></p>
+  </div>
+</body>
+</html>`;
+
 module.exports = function handler(req, res) {
+  // Block the public .vercel.app URL — only lonerider.ai is permitted
+  const host = req.headers.host || '';
+  if (host.endsWith('.vercel.app')) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(403).send(OFFLINE_HTML);
+  }
+
   const cookies = parseCookies(req.headers.cookie);
   const session = cookies.lr_session;
   const secret  = process.env.SESSION_SECRET;
