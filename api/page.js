@@ -58,8 +58,9 @@ const OFFLINE_HTML = `<!DOCTYPE html>
 </html>`;
 
 module.exports = function handler(req, res) {
-  // Block the public .vercel.app URL — only lonerider.ai is permitted
-  const host = req.headers.host || '';
+  // Block the public .vercel.app URL — only lonerider.ai is permitted.
+  // Vercel passes the original domain in x-forwarded-host, not host.
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   if (host.endsWith('.vercel.app')) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(403).send(OFFLINE_HTML);

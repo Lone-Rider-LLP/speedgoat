@@ -5,7 +5,7 @@ const { randomBytes } = require('crypto');
  * Generates a CSRF state token and redirects to Auth0 Universal Login.
  */
 module.exports = function handler(req, res) {
-  const host = req.headers.host || '';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   if (host.endsWith('.vercel.app')) {
     return res.status(403).send('This URL is no longer active. Use speedgoat.lonerider.ai');
   }
