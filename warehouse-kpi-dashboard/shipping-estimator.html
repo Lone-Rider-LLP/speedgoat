@@ -21,6 +21,10 @@
         .hdr-left h1 { font-size: 18px; font-weight: 600; }
         .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
         #last-updated { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.6; }
+        .logout-btn { font-size: 12px; color: var(--muted); text-decoration: none;
+                      border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+                      white-space: nowrap; transition: color .15s, border-color .15s; }
+        .logout-btn:hover { color: var(--text); border-color: var(--muted); }
 
         .page-nav { display: flex; background: var(--surface);
                     border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; }
@@ -180,6 +184,7 @@
             <button class="ccy-btn" data-ccy="usd" onclick="setCurrency('usd')">USD</button>
         </div>
         <span id="last-updated"></span>
+        <a href="/api/auth/logout" class="logout-btn">Sign out</a>
     </div>
 </header>
 <nav class="page-nav">

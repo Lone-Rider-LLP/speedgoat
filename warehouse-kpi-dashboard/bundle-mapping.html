@@ -37,6 +37,11 @@
         .hdr-left h1 { font-size: 18px; font-weight: 600; }
         .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
         #last-updated { font-size: 12px; color: var(--muted); }
+        .hdr-right { display: flex; align-items: center; gap: 14px; }
+        .logout-btn { font-size: 12px; color: var(--muted); text-decoration: none;
+                      border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+                      white-space: nowrap; transition: color .15s, border-color .15s; }
+        .logout-btn:hover { color: var(--text); border-color: var(--muted); }
 
         /* ── Toolbar ── */
         .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 28px;
@@ -130,7 +135,10 @@
         <h1>Bundle Mapping</h1>
         <p>Bundle SKU codes and their component SKUs</p>
     </div>
-    <span id="last-updated"></span>
+    <div class="hdr-right">
+        <span id="last-updated"></span>
+        <a href="/api/auth/logout" class="logout-btn">Sign out</a>
+    </div>
 </header>
 <nav class="page-nav">
     <a href="index.html">Warehouse KPIs</a>
