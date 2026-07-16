@@ -83,7 +83,7 @@ module.exports = function handler(req, res) {
   }
 
   // Read and serve the HTML
-  const htmlPath = path.join(process.cwd(), 'warehouse-kpi-dashboard', `${page}.html`);
+  const htmlPath = path.join(process.cwd(), '_pages', `${page}.html`);
 
   if (!fs.existsSync(htmlPath)) {
     return res.status(404).send('Page not found.');

@@ -2,7 +2,7 @@
   "outputDirectory": "warehouse-kpi-dashboard",
   "functions": {
     "api/page.js": {
-      "includeFiles": "warehouse-kpi-dashboard/**"
+      "includeFiles": "_pages/**"
     }
   },
   "rewrites": [
