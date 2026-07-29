@@ -44,6 +44,8 @@ module.exports = async function handler(req, res) {
   const { supapath = '', ...queryParams } = req.query;
   const queryString = new URLSearchParams(queryParams).toString();
   const supabaseUrl = `${process.env.SUPABASE_URL}/${supapath}${queryString ? '?' + queryString : ''}`;
+  console.log('[proxy] req.query:', JSON.stringify(req.query));
+  console.log('[proxy] supabaseUrl:', supabaseUrl);
 
   // ── Forward request ──────────────────────────────────────────────────────
   const forwardHeaders = {
