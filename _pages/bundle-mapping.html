@@ -189,7 +189,7 @@
 </main>
 
 <script>
-const URL_BASE = '/api/supabase';
+const URL_BASE = `${window.location.origin}/api/supabase`;
 const ANON_KEY = ''; // key removed — auth handled server-side
 const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
 
