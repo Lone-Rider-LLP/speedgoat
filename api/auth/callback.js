@@ -117,10 +117,10 @@ module.exports = async function handler(req, res) {
   }
 
   // --- Domain restriction: @lonerider.com only ---
-  if (!email || !email.toLowerCase().endsWith('@lonerider.com')) {
+  if (!email || !email.toLowerCase().endsWith('@lonerider-motorcycle.com')) {
     return res.status(403).send(
       `<p>Access denied.</p>` +
-      `<p>Only <strong>@lonerider.com</strong> accounts are permitted.</p>` +
+      `<p>Only <strong>@lonerider-motorcycle.com</strong> accounts are permitted.</p>` +
       `<p>You signed in as: <code>${email || 'unknown'}</code></p>` +
       `<p><a href="/api/auth/logout">Sign out</a></p>`
     );
