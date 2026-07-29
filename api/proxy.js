@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
 
   // ── Build Supabase URL ───────────────────────────────────────────────────
   // supapath comes from the rewrite: /api/supabase/rest/v1/foo → supapath=rest/v1/foo
-  const { supapath = '', ...queryParams } = req.query;
+  const { supapath = '', path: _ignoredPath, ...queryParams } = req.query;
   const queryString = new URLSearchParams(queryParams).toString();
   const supabaseUrl = `${process.env.SUPABASE_URL}/${supapath}${queryString ? '?' + queryString : ''}`;
   console.log('[proxy] req.query:', JSON.stringify(req.query));
