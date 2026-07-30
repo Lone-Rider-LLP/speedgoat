@@ -364,7 +364,7 @@ async function fetchFXRates() {
 function toUSD(cny) { return cny / (FX_RATES.CNY || 7.25); }
 function dispAmt(cny) { return DISPLAY_CCY === 'usd' ? toUSD(cny) : cny; }
 function dispLabel()  { return DISPLAY_CCY === 'usd' ? 'USD' : 'CNY'; }
-function fmtAmt(v)    { return v == null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+function fmtAmt(v)    { if (v == null) return '—'; const n = Number(v); if (n > 0 && n < 1) return '< 1'; return n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtPrec(v,d=2) { return v == null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function setCurrency(ccy) {
     DISPLAY_CCY = ccy;
@@ -529,7 +529,7 @@ function renderModeGrid(estimates, destId) {
         return;
     }
 
-    const validEstimates = Object.entries(estimates).filter(([,e]) => e != null);
+    const validEstimates = Object.entries(estimates).filter(([,e]) => e != null && Math.round(dispAmt(e.cost + (e.accessorialCost||0))) > 0);
     const cheapestMode   = validEstimates.length
         ? validEstimates.reduce((a,b) => a[1].cost < b[1].cost ? a : b)[0]
         : null;
