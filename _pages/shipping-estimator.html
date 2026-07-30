@@ -573,6 +573,7 @@ function renderModeGrid(estimates, destId) {
             <div class="mode-name">${mode}</div>
             <div class="mode-cost" style="color:${mColor}">${dispLabel()} ${fmtAmt(totalDisp)}</div>
             <div class="mode-cost-alt">${altTotal}</div>
+            ${totalDisp < 1 ? `<div style="font-size:10px;color:var(--muted);font-style:italic;margin-top:4px">* CBM too small to estimate — enter realistic carton dimensions</div>` : ''}
             <div class="mode-detail">
                 <strong>Freight:</strong> ${dispLabel()} ${fmtAmt(freightDisp)}<br>
                 ${accessDisp != null
