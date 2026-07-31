@@ -169,6 +169,28 @@
         .rate-bar-wrap { display: flex; align-items: center; gap: 8px; min-width: 120px; }
         .rate-bar { height: 6px; border-radius: 3px; flex-shrink: 0; }
         .rate-val  { font-size: 12px; white-space: nowrap; }
+
+        /* ── Line items table ── */
+        .li-table { width: 100%; border-collapse: collapse; }
+        .li-table th { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+                       color: var(--muted); padding: 5px 4px 8px; border-bottom: 1px solid var(--border);
+                       text-align: left; white-space: nowrap; }
+        .li-table td { padding: 4px 3px; vertical-align: middle; }
+        .li-table tfoot td { padding: 8px 4px; font-weight: 600; border-top: 1px solid var(--border); font-size: 12px; }
+        .li-input { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+                    border-radius: 5px; padding: 5px 7px; font-size: 12px; width: 100%; outline: none;
+                    transition: border-color .15s; -moz-appearance: textfield; }
+        .li-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+        .li-input:focus { border-color: var(--accent); }
+        .li-input.warn  { border-color: #f59e0b !important; background: rgba(245,158,11,.07); }
+        .li-input.found { border-color: rgba(52,211,153,.45); }
+        .li-remove { background: none; border: none; color: var(--muted); cursor: pointer;
+                     padding: 4px 6px; border-radius: 4px; font-size: 15px; line-height: 1; }
+        .li-remove:hover { color: #ef4444; background: rgba(239,68,68,.1); }
+        .add-row-btn { margin-top: 10px; background: none; border: 1px dashed var(--border);
+                       color: var(--muted); border-radius: 7px; padding: 8px; font-size: 12px;
+                       cursor: pointer; width: 100%; transition: all .15s; }
+        .add-row-btn:hover { border-color: var(--accent); color: var(--accent); }
     </style>
 </head>
 <body>
@@ -203,49 +225,54 @@
         <!-- ── Inputs ── -->
         <div class="section-label">Shipment Parameters</div>
         <div class="card">
-            <div class="inputs-grid">
-                <!-- Dimensions -->
-                <div class="field-group">
-                    <label>Carton Dimensions (cm)</label>
-                    <div class="field-row">
-                        <input type="number" id="dim-l" placeholder="L" min="0" step="0.1" oninput="calculate()">
-                        <span class="dim-sep">×</span>
-                        <input type="number" id="dim-w" placeholder="W" min="0" step="0.1" oninput="calculate()">
-                        <span class="dim-sep">×</span>
-                        <input type="number" id="dim-h" placeholder="H" min="0" step="0.1" oninput="calculate()">
-                    </div>
-                </div>
-                <!-- Weight & Quantity -->
-                <div class="field-group">
-                    <label>Weight per Carton (kg)</label>
-                    <input type="number" id="weight" placeholder="e.g. 2.5" min="0" step="0.1" oninput="calculate()">
-                    <label style="margin-top:8px">Number of Cartons</label>
-                    <input type="number" id="qty" placeholder="e.g. 100" min="1" step="1" value="1" oninput="calculate()">
-                </div>
-                <!-- Destination -->
-                <div class="field-group">
+            <!-- Top bar: destination + info -->
+            <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap">
+                <div class="field-group" style="flex:0 0 220px">
                     <label>Destination Warehouse</label>
                     <select id="dest" onchange="calculate()">
                         <option value="">All warehouses</option>
                     </select>
-                    <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border)">
-                        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">How estimates are calculated</div>
-                        <div style="font-size:11px;color:var(--muted);line-height:1.6">
-                            Air/Express: chargeable weight = max(actual, L×W×H÷6000)<br>
-                            Sea/Rail/Road: based on CBM where available, weight otherwise.<br>
-                            Rates derived from your historical shipment costs.
-                        </div>
+                </div>
+                <div style="flex:1;min-width:200px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border)">
+                    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px">How estimates are calculated</div>
+                    <div style="font-size:11px;color:var(--muted);line-height:1.6">
+                        Air/Express: chargeable weight = max(actual, L×W×H÷6000)<br>
+                        Sea/Rail/Road: based on CBM where available, weight otherwise.<br>
+                        Rates derived from your historical shipment costs.
                     </div>
                 </div>
             </div>
+            <!-- Line items table -->
+            <div style="overflow-x:auto">
+            <table class="li-table">
+                <thead>
+                    <tr>
+                        <th style="width:130px">SKU</th>
+                        <th style="width:62px">L (cm)</th>
+                        <th style="width:62px">W (cm)</th>
+                        <th style="width:62px">H (cm)</th>
+                        <th style="width:75px">kg/carton</th>
+                        <th style="width:72px">Cartons</th>
+                        <th style="width:78px">CBM</th>
+                        <th style="width:84px">Weight (kg)</th>
+                        <th style="width:28px"></th>
+                    </tr>
+                </thead>
+                <tbody id="li-body"></tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="6" style="color:var(--muted);font-size:11px;padding-left:4px">Total</td>
+                        <td id="ft-cbm" style="color:var(--text)">—</td>
+                        <td id="ft-weight" style="color:var(--text)">—</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            </div>
+            <button class="add-row-btn" onclick="addRow()">+ Add line item</button>
 
             <!-- Computed metrics -->
             <div class="metrics-strip" id="metrics-strip">
-                <div class="metric">
-                    <span class="metric-label">CBM per Carton</span>
-                    <span class="metric-value" id="m-cbm-per">—</span>
-                    <span class="metric-unit">m³</span>
-                </div>
                 <div class="metric">
                     <span class="metric-label">Total CBM</span>
                     <span class="metric-value" id="m-cbm-total">—</span>
@@ -353,6 +380,9 @@ let WAREHOUSES    = []; // from warehouse_locations
 let RATES         = {}; // computed historical rates
 let DISPLAY_CCY   = 'cny';
 let FX_RATES      = { USD:1, CNY:7.25, EUR:0.92, GBP:0.79, AUD:1.53, CAD:1.36 };
+let SKU_CATALOG   = {}; // { SKU_UPPER: { l, w, h, kg, name } }
+let ROW_IDS       = [];
+let _rowCount     = 0;
 
 // ── FX ────────────────────────────────────────────────────────────────────────
 async function fetchFXRates() {
@@ -471,48 +501,149 @@ function estimateMode(mode, totalCBM, totalWeightKg, destId) {
     return { cost, accessorialCost, accessorialRatio, method, chargeableWeight, rate };
 }
 
+// ── Line item management ──────────────────────────────────────────────────────
+function rowHtml(id) {
+    return `
+        <td>
+            <div style="display:flex;align-items:center;gap:4px">
+                <input class="li-input" id="r${id}-sku" type="text" placeholder="SKU"
+                    style="width:100px;font-family:monospace;font-size:11px"
+                    oninput="onSkuInput(${id})">
+                <span id="r${id}-badge" style="font-size:12px;flex-shrink:0" title=""></span>
+            </div>
+        </td>
+        <td><input class="li-input" id="r${id}-l"   type="number" placeholder="L"  min="0" step="0.1"  oninput="calculate()"></td>
+        <td><input class="li-input" id="r${id}-w"   type="number" placeholder="W"  min="0" step="0.1"  oninput="calculate()"></td>
+        <td><input class="li-input" id="r${id}-h"   type="number" placeholder="H"  min="0" step="0.1"  oninput="calculate()"></td>
+        <td><input class="li-input" id="r${id}-kg"  type="number" placeholder="kg" min="0" step="0.01" oninput="calculate()"></td>
+        <td><input class="li-input" id="r${id}-qty" type="number" placeholder="1"  min="1" step="1" value="1" oninput="calculate()"></td>
+        <td style="font-size:12px;color:var(--muted);padding:4px 6px;white-space:nowrap" id="r${id}-cbm">—</td>
+        <td style="font-size:12px;color:var(--muted);padding:4px 6px;white-space:nowrap" id="r${id}-wt">—</td>
+        <td><button class="li-remove" onclick="removeRow(${id})" title="Remove">×</button></td>`;
+}
+
+function addRow() {
+    const id = ++_rowCount;
+    ROW_IDS.push(id);
+    const tr = document.createElement('tr');
+    tr.id = `row-${id}`;
+    tr.innerHTML = rowHtml(id);
+    document.getElementById('li-body').appendChild(tr);
+    calculate();
+}
+
+function removeRow(id) {
+    const idx = ROW_IDS.indexOf(id);
+    if (idx > -1) ROW_IDS.splice(idx, 1);
+    const tr = document.getElementById(`row-${id}`);
+    if (tr) tr.remove();
+    if (ROW_IDS.length === 0) addRow(); // always keep at least one row
+    else calculate();
+}
+
+function onSkuInput(id) {
+    const raw = document.getElementById(`r${id}-sku`)?.value.trim().toUpperCase() || '';
+    const badge = document.getElementById(`r${id}-badge`);
+    const dimFields = ['l','w','h','kg'];
+
+    if (!raw) {
+        badge.textContent = '';
+        dimFields.forEach(f => document.getElementById(`r${id}-${f}`)?.classList.remove('warn','found'));
+        calculate();
+        return;
+    }
+
+    const p = SKU_CATALOG[raw];
+    if (!p) {
+        // Not in catalog — user enters manually, no warning
+        badge.textContent = '';
+        badge.title = '';
+        dimFields.forEach(f => document.getElementById(`r${id}-${f}`)?.classList.remove('warn','found'));
+        calculate();
+        return;
+    }
+
+    // SKU found — auto-fill fields; highlight missing ones in amber
+    const vals = { l: p.l, w: p.w, h: p.h, kg: p.kg };
+    let missing = [];
+    dimFields.forEach(f => {
+        const el = document.getElementById(`r${id}-${f}`);
+        if (!el) return;
+        el.classList.remove('warn','found');
+        const v = vals[f];
+        if (v != null && v > 0) {
+            el.value = v;
+            el.classList.add('found');
+        } else {
+            el.value = '';
+            el.classList.add('warn');
+            missing.push(f === 'kg' ? 'kg/carton' : `${f.toUpperCase()} (cm)`);
+        }
+    });
+
+    if (missing.length) {
+        badge.textContent = '⚠️';
+        badge.title = `${p.name || raw}: missing master data for ${missing.join(', ')} — fill in manually`;
+    } else {
+        badge.textContent = '✓';
+        badge.style.color = '#34d399';
+        badge.title = p.name || raw;
+    }
+    calculate();
+}
+
 // ── Main calculate ────────────────────────────────────────────────────────────
 function calculate() {
-    const l = parseFloat(document.getElementById('dim-l').value) || 0;
-    const w = parseFloat(document.getElementById('dim-w').value) || 0;
-    const h = parseFloat(document.getElementById('dim-h').value) || 0;
-    const kg = parseFloat(document.getElementById('weight').value) || 0;
-    const qty = Math.max(1, parseInt(document.getElementById('qty').value) || 1);
-    const destId = document.getElementById('dest').value;
+    let totalCBM = 0, totalWeight = 0, hasData = false;
 
-    // Computed metrics
-    const cbmPerCarton = l && w && h ? (l * w * h) / 1e6 : 0;
-    const totalCBM     = cbmPerCarton * qty;
-    const totalWeight  = kg * qty;
+    ROW_IDS.forEach(id => {
+        const l   = parseFloat(document.getElementById(`r${id}-l`)?.value)   || 0;
+        const w   = parseFloat(document.getElementById(`r${id}-w`)?.value)   || 0;
+        const h   = parseFloat(document.getElementById(`r${id}-h`)?.value)   || 0;
+        const kg  = parseFloat(document.getElementById(`r${id}-kg`)?.value)  || 0;
+        const qty = Math.max(1, parseInt(document.getElementById(`r${id}-qty`)?.value) || 1);
+
+        const cbmRow = (l && w && h) ? (l * w * h / 1e6) * qty : 0;
+        const wtRow  = kg * qty;
+
+        const cbmEl = document.getElementById(`r${id}-cbm`);
+        const wtEl  = document.getElementById(`r${id}-wt`);
+        if (cbmEl) cbmEl.textContent = cbmRow ? fmtPrec(cbmRow, 4) : '—';
+        if (wtEl)  wtEl.textContent  = wtRow  ? fmtPrec(wtRow, 1)  : '—';
+
+        totalCBM    += cbmRow;
+        totalWeight += wtRow;
+        if (l && w && h && kg) hasData = true;
+    });
+
+    document.getElementById('ft-cbm').textContent    = totalCBM    ? fmtPrec(totalCBM, 3)    : '—';
+    document.getElementById('ft-weight').textContent = totalWeight ? fmtPrec(totalWeight, 1) : '—';
+
+    const destId     = document.getElementById('dest').value;
     const volWeightAir = totalCBM * 167;
 
-    document.getElementById('m-cbm-per').textContent   = cbmPerCarton ? fmtPrec(cbmPerCarton, 4) : '—';
-    document.getElementById('m-cbm-total').textContent = totalCBM     ? fmtPrec(totalCBM, 3)     : '—';
+    document.getElementById('m-cbm-total').textContent     = totalCBM    ? fmtPrec(totalCBM, 3)    : '—';
     document.getElementById('m-weight-actual').textContent = totalWeight ? fmtPrec(totalWeight, 1) : '—';
     document.getElementById('m-weight-vol').textContent    = volWeightAir ? fmtPrec(volWeightAir, 1) : '—';
 
     const chargeableNote = document.getElementById('m-chargeable-note');
     if (volWeightAir && totalWeight) {
-        const dominant = volWeightAir > totalWeight ? 'vol. weight dominates' : 'actual weight dominates';
-        chargeableNote.textContent = `→ ${dominant} for air`;
+        chargeableNote.textContent = `→ ${volWeightAir > totalWeight ? 'vol. weight dominates' : 'actual weight dominates'} for air`;
     } else {
         chargeableNote.textContent = '';
     }
 
-    if (!cbmPerCarton || !totalWeight) {
+    if (!hasData || !totalWeight) {
         renderModeGrid(null, null);
-        renderWorkings(null,null,null,null,null,null,null,null,null);
+        renderWorkings(null, null, null, null, ROW_IDS.length, null, null, null, null);
         return;
     }
 
-    // Compute estimates per mode
     const estimates = {};
-    MODES.forEach(m => {
-        estimates[m] = estimateMode(m, totalCBM, totalWeight, destId);
-    });
+    MODES.forEach(m => { estimates[m] = estimateMode(m, totalCBM, totalWeight, destId); });
 
     renderModeGrid(estimates, destId);
-    renderWorkings(l, w, h, kg, qty, totalCBM, totalWeight, estimates, destId);
+    renderWorkings(null, null, null, null, ROW_IDS.length, totalCBM, totalWeight, estimates, destId);
     renderCostTypeChart(estimates);
     renderDestComparison(totalCBM, totalWeight, destId);
     renderRatesTable(destId);
@@ -726,11 +857,16 @@ function renderWorkings(l, w, h, kgPerCarton, qty, totalCBM, totalWeight, estima
     // Common steps shown once
     const commonHtml = `
         <div class="workings-block" style="grid-column:1/-1;background:rgba(249,115,22,.04);border-color:rgba(249,115,22,.2)">
-            <div class="workings-mode" style="color:var(--accent)">📐 Carton Maths</div>
-            ${step('Dimensions', `${l} × ${w} × ${h} cm`, '')}
-            ${step('CBM per carton', `${l} × ${w} × ${h} ÷ 1,000,000`, `${fmtPrec(l*w*h/1e6,5)} m³`)}
-            ${step('Total CBM', `${fmtPrec(l*w*h/1e6,5)} × ${qty} cartons`, `${fmtPrec(totalCBM,4)} m³`)}
-            ${step('Actual weight', `${kgPerCarton} kg × ${qty} cartons`, `${fmtPrec(totalWeight,2)} kg`)}
+            <div class="workings-mode" style="color:var(--accent)">📐 Shipment Summary</div>
+            ${l != null
+                ? step('Dimensions', `${l} × ${w} × ${h} cm`, '') +
+                  step('CBM per carton', `${l} × ${w} × ${h} ÷ 1,000,000`, `${fmtPrec(l*w*h/1e6,5)} m³`) +
+                  step('Total CBM', `${fmtPrec(l*w*h/1e6,5)} × ${qty} cartons`, `${fmtPrec(totalCBM,4)} m³`) +
+                  step('Actual weight', `${kgPerCarton} kg × ${qty} cartons`, `${fmtPrec(totalWeight,2)} kg`)
+                : step('Line items', `${qty} row${qty!==1?'s':''}`, '') +
+                  step('Total CBM', `sum of all rows`, `${fmtPrec(totalCBM,4)} m³`) +
+                  step('Total weight', `sum of all rows`, `${fmtPrec(totalWeight,2)} kg`)
+            }
             ${step('Vol. weight (air)', `${fmtPrec(totalCBM,4)} CBM × 167`, `${fmtPrec(volWeightAir,2)} kg`)}
             ${step('Chargeable (air)', `max(${fmtPrec(totalWeight,2)}, ${fmtPrec(volWeightAir,2)})`,
                 `${fmtPrec(Math.max(totalWeight,volWeightAir),2)} kg`,
@@ -781,8 +917,9 @@ function renderWorkings(l, w, h, kgPerCarton, qty, totalCBM, totalWeight, estima
         </div>`;
     }).join('');
 
-    document.getElementById('workings-sub').textContent =
-        `${l}×${w}×${h} cm · ${kgPerCarton} kg/carton · ${qty} carton${qty!==1?'s':''} · ${fmtPrec(totalCBM,3)} m³ total`;
+    document.getElementById('workings-sub').textContent = l != null
+        ? `${l}×${w}×${h} cm · ${kgPerCarton} kg/carton · ${qty} carton${qty!==1?'s':''} · ${fmtPrec(totalCBM,3)} m³ total`
+        : `${qty} line item${qty!==1?'s':''} · ${fmtPrec(totalCBM,3)} m³ · ${fmtPrec(totalWeight,1)} kg total`;
     document.getElementById('workings-grid').innerHTML = commonHtml + modeHtml;
 }
 
@@ -851,7 +988,7 @@ function renderRatesTable(selectedDest) {
 async function init() {
     await fetchFXRates();
 
-    const [shipments, costs, locations] = await Promise.all([
+    const [shipments, costs, locations, skuRows] = await Promise.all([
         fetchAll('shipments',
             'id,mode,status,destination_id,total_weight_kg,total_cbm',
             { archived_at: 'is.null' }),
@@ -860,7 +997,19 @@ async function init() {
             { archived_at: 'is.null' }),
         fetchAll('warehouse_locations', 'id,warehouse_name,operator,country', {})
             .catch(() => []),
+        fetchAll('vw_product_sku_coverage',
+            'sku,product_name,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,master_carton_weight_kg',
+            {}).catch(() => []),
     ]);
+
+    // Build SKU lookup
+    skuRows.forEach(r => {
+        if (r.sku) SKU_CATALOG[r.sku.toUpperCase()] = {
+            l: r.master_carton_length_cm, w: r.master_carton_width_cm,
+            h: r.master_carton_height_cm, kg: r.master_carton_weight_kg,
+            name: r.product_name,
+        };
+    });
 
     // Enrich shipments with costs
     const costsByShipment = costs.reduce((m,c) => {
@@ -904,8 +1053,9 @@ async function init() {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('app').style.display     = 'block';
 
-    // Render baseline rates table
+    // Render baseline rates table + initialise first empty row
     renderRatesTable('');
+    addRow();
 }
 
 init().catch(err => {
