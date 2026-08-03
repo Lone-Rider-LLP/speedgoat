@@ -252,7 +252,6 @@
                         <th style="width:62px">W (cm)</th>
                         <th style="width:62px">H (cm)</th>
                         <th style="width:75px">kg/carton</th>
-                        <th style="width:72px">Units</th>
                         <th style="width:72px">Cartons</th>
                         <th style="width:78px">CBM</th>
                         <th style="width:84px">Weight (kg)</th>
@@ -262,7 +261,7 @@
                 <tbody id="li-body"></tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="7" style="color:var(--muted);font-size:11px;padding-left:4px">Total</td>
+                        <td colspan="6" style="color:var(--muted);font-size:11px;padding-left:4px">Total</td>
                         <td id="ft-cbm" style="color:var(--text)">—</td>
                         <td id="ft-weight" style="color:var(--text)">—</td>
                         <td></td>
@@ -516,9 +515,8 @@ function rowHtml(id) {
         <td><input class="li-input" id="r${id}-l"   type="number" placeholder="L"  min="0" step="0.1"  oninput="calculate()"></td>
         <td><input class="li-input" id="r${id}-w"   type="number" placeholder="W"  min="0" step="0.1"  oninput="calculate()"></td>
         <td><input class="li-input" id="r${id}-h"   type="number" placeholder="H"  min="0" step="0.1"  oninput="calculate()"></td>
-        <td><input class="li-input" id="r${id}-kg"    type="number" placeholder="kg"    min="0" step="0.01" oninput="calculate()"></td>
-        <td><input class="li-input" id="r${id}-units" type="number" placeholder="units" min="0" step="1"    oninput="onUnitsInput(${id})" title="Enter units — cartons auto-calculated if master qty is known"></td>
-        <td><input class="li-input" id="r${id}-qty"   type="number" placeholder="1"     min="1" step="1" value="1" oninput="calculate()"></td>
+        <td><input class="li-input" id="r${id}-kg"  type="number" placeholder="kg" min="0" step="0.01" oninput="calculate()"></td>
+        <td><input class="li-input" id="r${id}-qty" type="number" placeholder="1"  min="1" step="1" value="1" oninput="calculate()"></td>
         <td style="font-size:12px;color:var(--muted);padding:4px 6px;white-space:nowrap" id="r${id}-cbm">—</td>
         <td style="font-size:12px;color:var(--muted);padding:4px 6px;white-space:nowrap" id="r${id}-wt">—</td>
         <td><button class="li-remove" onclick="removeRow(${id})" title="Remove">×</button></td>`;
@@ -543,16 +541,6 @@ function removeRow(id) {
     else calculate();
 }
 
-function onUnitsInput(id) {
-    const sku = document.getElementById(`r${id}-sku`)?.value.trim().toUpperCase() || '';
-    const p   = SKU_CATALOG[sku];
-    const units = parseInt(document.getElementById(`r${id}-units`)?.value) || 0;
-    if (p?.qpc && units > 0) {
-        const qtyEl = document.getElementById(`r${id}-qty`);
-        if (qtyEl) qtyEl.value = Math.ceil(units / p.qpc);
-    }
-    calculate();
-}
 
 function onSkuInput(id) {
     const raw = document.getElementById(`r${id}-sku`)?.value.trim().toUpperCase() || '';
@@ -601,12 +589,6 @@ function onSkuInput(id) {
         badge.textContent = '✓';
         badge.style.color = '#34d399';
         badge.title = p.name || raw;
-    }
-    // Recalculate cartons from units now that we have master_carton_quantity
-    const units = parseInt(document.getElementById(`r${id}-units`)?.value) || 0;
-    if (p.qpc && units > 0) {
-        const qtyEl = document.getElementById(`r${id}-qty`);
-        if (qtyEl) qtyEl.value = Math.ceil(units / p.qpc);
     }
     calculate();
 }
