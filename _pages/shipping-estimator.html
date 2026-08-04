@@ -198,7 +198,7 @@
 <header>
     <div class="hdr-left">
         <h1>Shipping Estimator</h1>
-        <p id="hdr-sub">Freight cost estimate based on historical rates · customs, fuel &amp; handling are additional</p>
+        <p id="hdr-sub">Freight cost estimate based on historical rates · customs, fuel &amp; handling are additional · sea = LCL only</p>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
         <div class="ccy-btns">
@@ -452,7 +452,12 @@ function computeModeRates(ships) {
 function computeAllRates(shipments) {
     const rates = {};
     MODES.forEach(mode => {
-        const mShips = shipments.filter(s => s.mode === mode && s.costs.length > 0);
+        const mShips = shipments.filter(s => {
+            if (s.mode !== mode || s.costs.length === 0) return false;
+            // Sea: exclude FCL — estimator is calibrated for LCL/smaller shipments only
+            if (mode === 'sea' && s.service_type?.toUpperCase() === 'FCL') return false;
+            return true;
+        });
         rates[mode] = computeModeRates(mShips);
         rates[mode].byDest     = {};
         // Track every destination this mode has EVER been used for (any count)
@@ -991,7 +996,7 @@ async function init() {
 
     const [shipments, costs, locations, skuRows] = await Promise.all([
         fetchAll('shipments',
-            'id,mode,status,destination_id,total_weight_kg,total_cbm',
+            'id,mode,status,destination_id,total_weight_kg,total_cbm,service_type',
             { archived_at: 'is.null' }),
         fetchAll('shipment_costs',
             'id,shipment_id,cost_type,amount,currency,billed_weight_kg,billed_cbm',
