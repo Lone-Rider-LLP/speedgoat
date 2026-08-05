@@ -252,7 +252,8 @@
                         <th style="width:62px">W (cm)</th>
                         <th style="width:62px">H (cm)</th>
                         <th style="width:75px">kg/carton</th>
-                        <th style="width:72px">Cartons</th>
+                        <th style="width:68px">Units</th>
+                        <th style="width:62px">Cartons</th>
                         <th style="width:78px">CBM</th>
                         <th style="width:84px">Weight (kg)</th>
                         <th style="width:28px"></th>
@@ -261,7 +262,7 @@
                 <tbody id="li-body"></tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="6" style="color:var(--muted);font-size:11px;padding-left:4px">Total</td>
+                        <td colspan="7" style="color:var(--muted);font-size:11px;padding-left:4px">Total</td>
                         <td id="ft-cbm" style="color:var(--text)">—</td>
                         <td id="ft-weight" style="color:var(--text)">—</td>
                         <td></td>
@@ -521,7 +522,11 @@ function rowHtml(id) {
         <td><input class="li-input" id="r${id}-w"   type="number" placeholder="W"  min="0" step="0.1"  oninput="calculate()"></td>
         <td><input class="li-input" id="r${id}-h"   type="number" placeholder="H"  min="0" step="0.1"  oninput="calculate()"></td>
         <td><input class="li-input" id="r${id}-kg"  type="number" placeholder="kg" min="0" step="0.01" oninput="calculate()"></td>
-        <td><input class="li-input" id="r${id}-qty" type="number" placeholder="1"  min="1" step="1" value="1" oninput="calculate()"></td>
+        <td>
+            <input class="li-input" id="r${id}-units" type="number" placeholder="1" min="1" step="1" value="1" oninput="calculate()">
+            <input type="hidden" id="r${id}-qpc" value="1">
+        </td>
+        <td style="font-size:12px;color:var(--muted);padding:4px 6px;text-align:center;white-space:nowrap" id="r${id}-cartons">1</td>
         <td style="font-size:12px;color:var(--muted);padding:4px 6px;white-space:nowrap" id="r${id}-cbm">—</td>
         <td style="font-size:12px;color:var(--muted);padding:4px 6px;white-space:nowrap" id="r${id}-wt">—</td>
         <td><button class="li-remove" onclick="removeRow(${id})" title="Remove">×</button></td>`;
@@ -555,6 +560,8 @@ function onSkuInput(id) {
     if (!raw) {
         badge.textContent = '';
         dimFields.forEach(f => document.getElementById(`r${id}-${f}`)?.classList.remove('warn','found'));
+        const qpcEl = document.getElementById(`r${id}-qpc`);
+        if (qpcEl) qpcEl.value = 1;
         calculate();
         return;
     }
@@ -565,6 +572,8 @@ function onSkuInput(id) {
         badge.textContent = '';
         badge.title = '';
         dimFields.forEach(f => document.getElementById(`r${id}-${f}`)?.classList.remove('warn','found'));
+        const qpcEl = document.getElementById(`r${id}-qpc`);
+        if (qpcEl) qpcEl.value = 1;
         calculate();
         return;
     }
@@ -587,13 +596,18 @@ function onSkuInput(id) {
         }
     });
 
+    // Set units-per-carton from catalog
+    const qpcEl = document.getElementById(`r${id}-qpc`);
+    if (qpcEl) qpcEl.value = (p.qpc && p.qpc > 0) ? p.qpc : 1;
+
+    const qpcLabel = (p.qpc && p.qpc > 0) ? ` · ${p.qpc} units/carton` : '';
     if (missing.length) {
         badge.textContent = '⚠️';
-        badge.title = `${p.name || raw}: missing master data for ${missing.join(', ')} — fill in manually`;
+        badge.title = `${p.name || raw}: missing master data for ${missing.join(', ')} — fill in manually${qpcLabel}`;
     } else {
         badge.textContent = '✓';
         badge.style.color = '#34d399';
-        badge.title = p.name || raw;
+        badge.title = (p.name || raw) + qpcLabel;
     }
     calculate();
 }
@@ -603,11 +617,17 @@ function calculate() {
     let totalCBM = 0, totalWeight = 0, hasData = false;
 
     ROW_IDS.forEach(id => {
-        const l   = parseFloat(document.getElementById(`r${id}-l`)?.value)   || 0;
-        const w   = parseFloat(document.getElementById(`r${id}-w`)?.value)   || 0;
-        const h   = parseFloat(document.getElementById(`r${id}-h`)?.value)   || 0;
-        const kg  = parseFloat(document.getElementById(`r${id}-kg`)?.value)  || 0;
-        const qty = Math.max(1, parseInt(document.getElementById(`r${id}-qty`)?.value) || 1);
+        const l     = parseFloat(document.getElementById(`r${id}-l`)?.value)     || 0;
+        const w     = parseFloat(document.getElementById(`r${id}-w`)?.value)     || 0;
+        const h     = parseFloat(document.getElementById(`r${id}-h`)?.value)     || 0;
+        const kg    = parseFloat(document.getElementById(`r${id}-kg`)?.value)    || 0;
+        const units = Math.max(1, parseInt(document.getElementById(`r${id}-units`)?.value) || 1);
+        const qpc   = Math.max(1, parseInt(document.getElementById(`r${id}-qpc`)?.value)   || 1);
+        const qty   = Math.ceil(units / qpc); // number of cartons
+
+        // Update cartons display
+        const cartEl = document.getElementById(`r${id}-cartons`);
+        if (cartEl) cartEl.textContent = qty;
 
         const cbmRow = (l && w && h) ? (l * w * h / 1e6) * qty : 0;
         const wtRow  = kg * qty;
@@ -1004,7 +1024,7 @@ async function init() {
         fetchAll('warehouse_locations', 'id,warehouse_name,operator,country', {})
             .catch(() => []),
         fetchAll('vw_product_sku_coverage',
-            'sku,product_name,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,master_carton_weight_kg',
+            'sku,product_name,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,master_carton_weight_kg,master_carton_quantity',
             {}).catch(() => []),
     ]);
 
