@@ -233,6 +233,11 @@
                         <option value="">All warehouses</option>
                     </select>
                 </div>
+                <div class="field-group" style="flex:0 0 150px">
+                    <label title="Show FCL container estimate when total CBM reaches this value">FCL from (CBM)</label>
+                    <input type="number" id="fcl-threshold" value="10" min="1" step="1" oninput="calculate()"
+                           title="Show FCL container estimate when total CBM reaches this value">
+                </div>
                 <div style="flex:1;min-width:200px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border)">
                     <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px">How estimates are calculated</div>
                     <div style="font-size:11px;color:var(--muted);line-height:1.6">
@@ -379,6 +384,7 @@ const MIN_MODE_COUNT  = 5;  // min shipments for a mode to show any estimate at 
 let ALL_SHIPMENTS = []; // enriched with costs, total_cny, bwkg, bcbm
 let WAREHOUSES    = []; // from warehouse_locations
 let RATES         = {}; // computed historical rates
+let FCL_RATES     = null; // FCL-specific rates (flat per-container avg)
 let DISPLAY_CCY   = 'cny';
 let FX_RATES      = { USD:1, CNY:7.25, EUR:0.92, GBP:0.79, AUD:1.53, CAD:1.36 };
 let SKU_CATALOG   = {}; // { SKU_UPPER: { l, w, h, kg, name } }
@@ -469,6 +475,48 @@ function computeAllRates(shipments) {
         });
     });
     return rates;
+}
+
+// ── FCL rates (flat per-container avg, not per-CBM) ───────────────────────────
+function computeFCLRates(shipments) {
+    const fclShips = shipments.filter(s =>
+        s.mode === 'sea' &&
+        s.service_type?.toLowerCase() === 'fcl' &&
+        s.freight_cny > 0
+    );
+    if (fclShips.length === 0) return { globalAvg: null, globalCount: 0, byDest: {} };
+
+    const globalAvg   = avg(fclShips.map(s => s.freight_cny));
+    const globalCount = fclShips.length;
+
+    const byDest = {};
+    Object.entries(groupBy(fclShips, s => s.destination_id)).forEach(([destId, ships]) => {
+        if (!destId || ships.length < MIN_CONFIDENCE) return;
+        byDest[destId] = { avg: avg(ships.map(s => s.freight_cny)), count: ships.length };
+    });
+
+    return { globalAvg, globalCount, byDest };
+}
+
+function estimateFCL(totalCBM, destId) {
+    const threshold = parseFloat(document.getElementById('fcl-threshold')?.value) || 10;
+    if (!FCL_RATES || totalCBM < threshold) return null;
+
+    const destRate     = destId && FCL_RATES.byDest[destId] ? FCL_RATES.byDest[destId] : null;
+    const primaryCost  = destRate ? destRate.avg  : FCL_RATES.globalAvg;
+    const primaryCount = destRate ? destRate.count : FCL_RATES.globalCount;
+    const primaryLabel = destRate ? 'Dest-specific' : 'Global avg';
+    // Always show global as secondary if dest-specific is primary
+    const secondaryCost  = destRate ? FCL_RATES.globalAvg  : null;
+    const secondaryCount = destRate ? FCL_RATES.globalCount : null;
+
+    if (primaryCost == null || primaryCost <= 0) return null;
+
+    const containerFit = totalCBM <= 28 ? 'fits 20ft (~28 CBM)'
+        : totalCBM <= 67 ? 'fits 40ft (~67 CBM)'
+        : `~${Math.ceil(totalCBM / 67)} × 40ft containers needed`;
+
+    return { primaryCost, primaryCount, primaryLabel, secondaryCost, secondaryCount, containerFit };
 }
 
 // ── Estimate ──────────────────────────────────────────────────────────────────
@@ -667,8 +715,9 @@ function calculate() {
 
     const estimates = {};
     MODES.forEach(m => { estimates[m] = estimateMode(m, totalCBM, totalWeight, destId); });
+    const fclEst = estimateFCL(totalCBM, destId);
 
-    renderModeGrid(estimates, destId);
+    renderModeGrid(estimates, destId, fclEst);
     renderWorkings(null, null, null, null, ROW_IDS.length, totalCBM, totalWeight, estimates, destId);
     renderCostTypeChart(estimates);
     renderDestComparison(totalCBM, totalWeight, destId);
@@ -676,7 +725,7 @@ function calculate() {
 }
 
 // ── Render mode cards ─────────────────────────────────────────────────────────
-function renderModeGrid(estimates, destId) {
+function renderModeGrid(estimates, destId, fclEst) {
     if (!estimates) {
         document.getElementById('mode-grid').innerHTML = `
             <div class="placeholder" style="grid-column:1/-1">
@@ -690,6 +739,38 @@ function renderModeGrid(estimates, destId) {
     const cheapestMode   = validEstimates.length
         ? validEstimates.reduce((a,b) => a[1].cost < b[1].cost ? a : b)[0]
         : null;
+
+    // Build FCL card HTML (appended after LCL modes)
+    let fclCardHtml = '';
+    if (fclEst) {
+        const fclColor      = '#22d3ee';
+        const primaryDisp   = dispAmt(fclEst.primaryCost);
+        const primaryAlt    = DISPLAY_CCY === 'usd'
+            ? `CNY ${fmtAmt(fclEst.primaryCost)}`
+            : `≈ USD ${fmtAmt(toUSD(fclEst.primaryCost))}`;
+        const confPct       = Math.min(100, (fclEst.primaryCount / 10) * 100);
+        const secondaryHtml = fclEst.secondaryCost != null
+            ? `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:6px;font-size:10px;color:var(--muted)">
+                   Global avg: ${dispLabel()} ${fmtAmt(dispAmt(fclEst.secondaryCost))} (${fclEst.secondaryCount} shipment${fclEst.secondaryCount!==1?'s':''})
+               </div>`
+            : '';
+        fclCardHtml = `<div class="mode-card">
+            <div class="mode-icon">🚢</div>
+            <div class="mode-name" style="text-transform:uppercase;letter-spacing:.05em">FCL Sea</div>
+            <div class="mode-cost" style="color:${fclColor}">${dispLabel()} ${fmtAmt(primaryDisp)}</div>
+            <div class="mode-cost-alt">${primaryAlt}</div>
+            <div class="mode-detail">
+                <strong>Avg per container</strong> (freight only)<br>
+                <strong>Container:</strong> ${fclEst.containerFit}<br>
+                <strong>Source:</strong> ${fclEst.primaryLabel} (${fclEst.primaryCount} shipment${fclEst.primaryCount!==1?'s':''})
+                ${secondaryHtml}
+            </div>
+            <div class="confidence">
+                <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%;background:${fclColor}"></div></div>
+                <span class="conf-label">${fclEst.primaryCount} shipment${fclEst.primaryCount!==1?'s':''}</span>
+            </div>
+        </div>`;
+    }
 
     document.getElementById('mode-grid').innerHTML = MODES.map(mode => {
         const e = estimates[mode];
@@ -746,7 +827,7 @@ function renderModeGrid(estimates, destId) {
                 <span class="conf-label">${e.rate.count} shipment${e.rate.count!==1?'s':''}</span>
             </div>
         </div>`;
-    }).join('');
+    }).join('') + fclCardHtml;
 }
 
 // ── Cost type split chart ─────────────────────────────────────────────────────
@@ -1057,6 +1138,7 @@ async function init() {
 
     WAREHOUSES = locations.filter(l => !l.archived_at);
     RATES      = computeAllRates(ALL_SHIPMENTS);
+    FCL_RATES  = computeFCLRates(ALL_SHIPMENTS);
 
     // Populate destination dropdown
     const sel = document.getElementById('dest');
