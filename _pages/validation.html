@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedGoat — Estimator Validation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0c0e16; --surface: #161926; --surface2: #1e2235;
+            --border: #2a2f45; --text: #e2e8f0; --muted: #7c87a0;
+            --accent: #f97316; --green: #34d399; --blue: #60a5fa;
+            --red: #ef4444; --amber: #fbbf24;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 14px; min-height: 100vh; }
+
+        header { background: var(--surface); border-bottom: 1px solid var(--border);
+                 padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+        .hdr-left h1 { font-size: 18px; font-weight: 600; }
+        .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        #last-updated { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.6; }
+        .logout-btn { font-size: 12px; color: var(--muted); text-decoration: none;
+                      border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+                      white-space: nowrap; transition: color .15s, border-color .15s; }
+        .logout-btn:hover { color: var(--text); border-color: var(--muted); }
+
+        .page-nav { display: flex; background: var(--surface);
+                    border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; }
+        .page-nav a { padding: 10px 16px; font-size: 13px; text-decoration: none;
+                      color: var(--muted); border-bottom: 2px solid transparent;
+                      margin-bottom: -1px; transition: color .15s, border-color .15s; white-space: nowrap; }
+        .page-nav a:hover  { color: var(--text); }
+        .page-nav a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+        main { padding: 22px 28px; max-width: 1600px; }
+
+        #loading { display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; height: 60vh; gap: 14px; color: var(--muted); }
+        .spinner { width: 34px; height: 34px; border: 3px solid var(--border);
+                   border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #error-box { display: none; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+                     border-radius: 8px; padding: 14px 18px; color: #fca5a5; margin: 16px 0; }
+
+        .card { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 10px; padding: 20px 24px; margin-bottom: 16px; }
+        .card-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .card-sub   { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+        .section-label { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                         text-transform: uppercase; color: var(--muted); margin: 24px 0 10px; }
+
+        .field-group { display: flex; flex-direction: column; gap: 8px; }
+        .field-group label { font-size: 11px; font-weight: 700; letter-spacing: .08em;
+                             text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+        .field-group > input, .field-group > select { margin-top: auto; }
+        input[type=number], select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 7px; padding: 9px 12px;
+            font-size: 13px; width: 100%; outline: none; transition: border-color .15s;
+            -moz-appearance: textfield; }
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+        input:focus, select:focus { border-color: var(--accent); }
+        select option { background: var(--surface2); }
+
+        /* ── Metric tiles ── */
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                   gap: 12px; margin-bottom: 18px; }
+        .metric { background: var(--surface2); border-radius: 8px; padding: 14px 16px; }
+        .metric-label { font-size: 10px; font-weight: 700; letter-spacing: .1em;
+                        text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+        .metric-value { font-size: 24px; font-weight: 600; }
+        .metric-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+        /* ── Table ── */
+        .tbl-wrap { overflow-x: auto; }
+        table.v { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        table.v th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .08em;
+                     text-transform: uppercase; color: var(--muted); padding: 8px 10px;
+                     border-bottom: 1px solid var(--border); white-space: nowrap;
+                     cursor: pointer; user-select: none; position: sticky; top: 0;
+                     background: var(--surface); }
+        table.v th:hover { color: var(--text); }
+        table.v th.r, table.v td.r { text-align: right; }
+        table.v td { padding: 7px 10px; border-bottom: 1px solid rgba(42,47,69,.5); white-space: nowrap; }
+        table.v tbody tr:hover { background: var(--surface2); }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+        .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px;
+                border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; }
+        .var-good { color: var(--green); font-weight: 600; }
+        .var-ok   { color: var(--amber); font-weight: 600; }
+        .var-bad  { color: var(--red);   font-weight: 600; }
+        .bar { height: 5px; border-radius: 3px; background: var(--border);
+               position: relative; min-width: 44px; }
+        .bar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+        .note { font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+        .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px;
+                  color: var(--muted); margin-top: 10px; }
+        .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+                    margin-right: 5px; vertical-align: middle; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="hdr-left">
+        <h1>Estimator Validation</h1>
+        <p id="hdr-sub">Loading…</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+        <div id="last-updated"></div>
+        <a href="/api/auth/logout" class="logout-btn">Sign out</a>
+    </div>
+</header>
+
+<nav class="page-nav">
+    <a href="index.html">Warehouse KPIs</a>
+    <a href="product-catalog.html">Product Catalog</a>
+    <a href="bundle-mapping.html">Bundle Mapping</a>
+    <a href="transportation-costs.html">Transportation Costs</a>
+    <a href="shipping-estimator.html">Shipping Estimator</a>
+    <a href="validation.html" class="active">Validation</a>
+</nav>
+
+<main>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Loading shipments, costs and product data…</div>
+    </div>
+    <div id="error-box"></div>
+
+    <div id="app" style="display:none">
+
+        <!-- Controls -->
+        <div class="card">
+            <div class="card-title">Test parameters</div>
+            <div class="card-sub">
+                Every shipment is estimated using rates built from the <em>other</em> shipments only
+                (leave-one-out), so nothing influences its own estimate.
+            </div>
+            <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+                <div class="field-group" style="flex:0 0 150px">
+                    <label title="Only use shipments from the last N months when computing rates">Rate window (mo)</label>
+                    <input type="number" id="rate-window" value="12" min="1" max="60" step="1" oninput="run()">
+                </div>
+                <div class="field-group" style="flex:0 0 170px">
+                    <label title="Exclude shipments where too little of the cargo has carton dimensions">Min data coverage %</label>
+                    <input type="number" id="min-cov" value="90" min="0" max="100" step="5" oninput="run()">
+                </div>
+                <div class="field-group" style="flex:0 0 150px">
+                    <label>Mode</label>
+                    <select id="mode-filter" onchange="run()">
+                        <option value="">All modes</option>
+                        <option value="air">Air</option>
+                        <option value="sea">Sea</option>
+                        <option value="express">Express</option>
+                        <option value="rail">Rail</option>
+                        <option value="road">Road</option>
+                    </select>
+                </div>
+                <div class="field-group" style="flex:0 0 170px">
+                    <label title="Compare freight only, or freight plus accessorials">Compare on</label>
+                    <select id="basis" onchange="run()">
+                        <option value="freight">Freight only</option>
+                        <option value="total">Freight + accessorials</option>
+                    </select>
+                </div>
+                <div style="flex:1;min-width:260px;padding:10px 12px;background:var(--surface2);
+                            border-radius:7px;border:1px solid var(--border)">
+                    <div class="note" id="method-note"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Headline metrics -->
+        <div class="section-label">Accuracy</div>
+        <div class="metrics" id="metrics"></div>
+
+        <!-- Distribution -->
+        <div class="card">
+            <div class="card-title">Variance distribution</div>
+            <div class="card-sub">How far each estimate sits from the actual cost. Zero is perfect.</div>
+            <div style="position:relative;height:210px"><canvas id="dist-chart"></canvas></div>
+        </div>
+
+        <!-- Per-mode summary -->
+        <div class="card">
+            <div class="card-title">By mode</div>
+            <div class="card-sub">Median absolute variance per mode — the headline number to quote.</div>
+            <div class="tbl-wrap"><table class="v" id="mode-tbl"></table></div>
+        </div>
+
+        <!-- Detail -->
+        <div class="card">
+            <div class="card-title">Shipment detail</div>
+            <div class="card-sub">Click any column heading to sort. Variance = (estimate − actual) ÷ actual.</div>
+            <div class="tbl-wrap"><table class="v" id="detail-tbl"></table></div>
+            <div class="legend">
+                <span><i style="background:var(--green)"></i>within 20%</span>
+                <span><i style="background:var(--amber)"></i>20–50%</span>
+                <span><i style="background:var(--red)"></i>over 50%</span>
+                <span><i style="background:var(--border)"></i>coverage = share of units with carton data</span>
+            </div>
+        </div>
+
+        <!-- Excluded -->
+        <div class="card">
+            <div class="card-title">Excluded from the test</div>
+            <div class="card-sub" id="excl-sub"></div>
+            <div class="tbl-wrap"><table class="v" id="excl-tbl"></table></div>
+        </div>
+
+    </div>
+</main>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const URL_BASE = `${window.location.origin}/api/supabase`;
+const ANON_KEY = '';
+const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+
+const MODES = ['air','sea','express','rail','road'];
+const MODE_COLOR = { air:'#60a5fa', sea:'#34d399', express:'#f97316', rail:'#a78bfa', road:'#fbbf24' };
+const MIN_CONFIDENCE = 3;
+const MIN_MODE_COUNT = 5;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let SHIPMENTS = [];   // enriched: costs, derived cbm/kg, coverage, actuals
+let SKU_CAT   = {};
+let RESULTS   = [];
+let EXCLUDED  = [];
+let sortKey   = 'absVar';
+let sortDir   = 1;
+let distChart = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmt0 = v => v == null ? '—' : Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
+const fmt2 = v => v == null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct  = v => v == null ? '—' : `${v>0?'+':''}${(v*100).toFixed(1)}%`;
+function median(arr) {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a,b)=>a-b), m = Math.floor(s.length/2);
+    return s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+}
+function varClass(v) {
+    const a = Math.abs(v);
+    return a <= 0.20 ? 'var-good' : a <= 0.50 ? 'var-ok' : 'var-bad';
+}
+function fmtMonthYear(d) {
+    return d ? d.toLocaleDateString('en-GB',{month:'short',year:'numeric'}) : '—';
+}
+
+async function fetchAll(table, select, extra = {}) {
+    const PAGE = 1000; let rows = [], offset = 0;
+    while (true) {
+        const u = new URL(`${URL_BASE}/rest/v1/${table}`);
+        u.searchParams.set('select', select);
+        u.searchParams.set('limit', PAGE);
+        u.searchParams.set('offset', offset);
+        for (const [k,v] of Object.entries(extra)) u.searchParams.set(k, v);
+        const r = await fetch(u, { headers: HEADERS, cache: 'no-store' });
+        if (!r.ok) throw new Error(`${table}: ${r.status}`);
+        const page = await r.json();
+        rows = rows.concat(page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+    }
+    return rows;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RATE LOGIC — mirrored from shipping-estimator.html. Keep the two in sync;
+// if the estimator's maths changes, change it here too or this page stops
+// telling the truth about what the estimator does.
+// ══════════════════════════════════════════════════════════════════════════════
+function avg(arr) { return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : null; }
+function groupBy(arr, fn) { return arr.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
+
+function computeModeRates(ships) {
+    const kgShips  = ships.filter(s => s.bwkg  > 0 && s.freight_usd > 0);
+    const cbmShips = ships.filter(s => s.bcbm  > 0 && s.freight_usd > 0);
+    const sum      = (arr, fn) => arr.reduce((t,x) => t + fn(x), 0);
+    const cpkg     = kgShips.length
+        ? sum(kgShips,  s => s.freight_usd) / sum(kgShips,  s => s.bwkg) : null;
+    const cpcbm    = cbmShips.length
+        ? sum(cbmShips, s => s.freight_usd) / sum(cbmShips, s => s.bcbm) : null;
+    const allCosts = ships.flatMap(s => s.costs);
+    const freightTotal     = allCosts.filter(c=>c.cost_type==='freight').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const accessorialTotal = allCosts.filter(c=>c.cost_type==='accessorials').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+    const accessorialRatio = freightTotal > 0 && accessorialTotal > 0 ? accessorialTotal / freightTotal : null;
+    return { cpkg, cpcbm, count: ships.length, accessorialRatio };
+}
+
+function withinWindow(ships, months) {
+    if (!months || months <= 0) return ships;
+    const cutoff = Date.now() - months * 30.44 * 24 * 3600 * 1000;
+    return ships.filter(s => s.shipTs && s.shipTs >= cutoff);
+}
+
+function computeAllRates(shipments, months) {
+    const rates = {};
+    MODES.forEach(mode => {
+        const all = shipments.filter(s => {
+            if (s.mode !== mode || s.costs.length === 0) return false;
+            if (mode === 'sea' && s.service_type?.toUpperCase() === 'FCL') return false;
+            return true;
+        });
+        const windowed = withinWindow(all, months);
+        const mShips   = windowed.length >= MIN_MODE_COUNT ? windowed : all;
+        rates[mode] = computeModeRates(mShips);
+        rates[mode].byDest = {};
+        rates[mode].byDestUsed = new Set(all.map(s => s.destination_id).filter(Boolean));
+        if (mode !== 'sea') {
+            Object.entries(groupBy(mShips, s => s.destination_id)).forEach(([destId, ships]) => {
+                if (destId && ships.length >= MIN_CONFIDENCE)
+                    rates[mode].byDest[destId] = computeModeRates(ships);
+            });
+        }
+    });
+    return rates;
+}
+
+function computeFCLRates(shipments, months) {
+    const all = shipments.filter(s =>
+        s.mode === 'sea' && s.service_type?.toLowerCase() === 'fcl' && s.freight_usd > 0);
+    const windowed = withinWindow(all, months);
+    const fclShips = windowed.length >= MIN_CONFIDENCE ? windowed : all;
+    if (!fclShips.length) return null;
+    const byDest = {};
+    Object.entries(groupBy(fclShips, s => s.destination_id)).forEach(([destId, ships]) => {
+        if (!destId || ships.length < MIN_CONFIDENCE) return;
+        byDest[destId] = { avg: avg(ships.map(s => s.freight_usd)), count: ships.length };
+    });
+    return { globalAvg: avg(fclShips.map(s => s.freight_usd)),
+             globalCount: fclShips.length, byDest };
+}
+
+function getRate(rates, mode, destId) {
+    const r = rates[mode];
+    if (!r) return null;
+    if (destId && r.byDest?.[destId]) return { ...r.byDest[destId], sourceLabel: 'dest' };
+    return { ...r, sourceLabel: 'global' };
+}
+
+function applyRate(mode, rate, totalCBM, totalWeightKg) {
+    if (!rate) return null;
+    if (mode === 'air' || mode === 'express') {
+        const chargeable = Math.max(totalWeightKg, totalCBM * 167);
+        if (rate.cpkg  != null) return { cost: rate.cpkg * chargeable, basis: 'kg', chargeable };
+        if (rate.cpcbm != null) return { cost: rate.cpcbm * totalCBM, basis: 'cbm', chargeable };
+        return null;
+    }
+    if (rate.cpcbm != null) return { cost: rate.cpcbm * totalCBM, basis: 'cbm', chargeable: totalWeightKg };
+    if (rate.cpkg  != null) return { cost: rate.cpkg * totalWeightKg, basis: 'kg', chargeable: totalWeightKg };
+    return null;
+}
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Run the validation ────────────────────────────────────────────────────────
+function run() {
+    const months = Math.max(1, parseInt(document.getElementById('rate-window').value) || 12);
+    const minCov = (parseFloat(document.getElementById('min-cov').value) || 0) / 100;
+    const modeF  = document.getElementById('mode-filter').value;
+    const basis  = document.getElementById('basis').value;
+
+    RESULTS = []; EXCLUDED = [];
+
+    SHIPMENTS.forEach(s => {
+        // Exclusion reasons, most informative first
+        if (!s.actualFreight || s.actualFreight <= 0) {
+            EXCLUDED.push({ ...s, reason: 'no freight cost recorded' }); return;
+        }
+        if (s.derivedCBM <= 0 && s.derivedKG <= 0) {
+            EXCLUDED.push({ ...s, reason: 'no carton data for any SKU' }); return;
+        }
+        if (s.coverage < minCov) {
+            EXCLUDED.push({ ...s, reason: `coverage ${(s.coverage*100).toFixed(0)}% below threshold` }); return;
+        }
+        if (modeF && s.mode !== modeF) return;
+
+        // LEAVE-ONE-OUT: rates from every other shipment
+        const pool  = SHIPMENTS.filter(o => o.id !== s.id);
+        const rates = computeAllRates(pool, months);
+        const isFCL = s.mode === 'sea' && s.service_type?.toUpperCase() === 'FCL';
+
+        let est = null, rateUsed = null, src = null;
+        if (isFCL) {
+            const fcl = computeFCLRates(pool, months);
+            if (fcl) {
+                const d = s.destination_id && fcl.byDest[s.destination_id] ? fcl.byDest[s.destination_id] : null;
+                est = d ? d.avg : fcl.globalAvg;
+                src = d ? 'FCL dest' : 'FCL global';
+                rateUsed = null;
+            }
+        } else {
+            const r = getRate(rates, s.mode, s.destination_id);
+            const a = applyRate(s.mode, r, s.derivedCBM, s.derivedKG);
+            if (a) {
+                est      = a.cost;
+                src      = r.sourceLabel;
+                rateUsed = a.basis === 'kg' ? r.cpkg : r.cpcbm;
+                if (basis === 'total' && r.accessorialRatio) est *= (1 + r.accessorialRatio);
+            }
+        }
+
+        if (est == null || !isFinite(est)) {
+            EXCLUDED.push({ ...s, reason: 'no rate available for this mode/window' }); return;
+        }
+
+        const actual = basis === 'total' ? s.actualFreight + s.actualAccess : s.actualFreight;
+        const variance = (est - actual) / actual;
+        RESULTS.push({ ...s, est, actual, variance, absVar: Math.abs(variance),
+                       rateUsed, src, isFCL });
+    });
+
+    render(months, basis);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(months, basis) {
+    document.getElementById('method-note').innerHTML =
+        `Comparing <strong>${basis === 'total' ? 'freight + accessorials' : 'freight only'}</strong> `
+      + `against a ${months}-month rate window. `
+      + `Air and express are priced on chargeable weight (max of actual and CBM×167); `
+      + `sea, rail and road on CBM. Sea FCL uses a flat per-container average.`;
+
+    const vars = RESULTS.map(r => r.absVar);
+    const med  = median(vars);
+    const w20  = RESULTS.filter(r => r.absVar <= 0.20).length;
+    const w50  = RESULTS.filter(r => r.absVar <= 0.50).length;
+    const bias = median(RESULTS.map(r => r.variance));
+
+    document.getElementById('metrics').innerHTML = `
+        <div class="metric">
+            <div class="metric-label">Shipments tested</div>
+            <div class="metric-value">${RESULTS.length}</div>
+            <div class="metric-sub">${EXCLUDED.length} excluded</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Median error</div>
+            <div class="metric-value ${med!=null?varClass(med):''}">${med!=null?(med*100).toFixed(1)+'%':'—'}</div>
+            <div class="metric-sub">absolute, half are better</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Within 20%</div>
+            <div class="metric-value">${RESULTS.length?Math.round(100*w20/RESULTS.length):0}%</div>
+            <div class="metric-sub">${w20} of ${RESULTS.length}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Within 50%</div>
+            <div class="metric-value">${RESULTS.length?Math.round(100*w50/RESULTS.length):0}%</div>
+            <div class="metric-sub">${w50} of ${RESULTS.length}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">Bias</div>
+            <div class="metric-value" style="color:${bias==null?'var(--muted)':Math.abs(bias)<0.1?'var(--green)':'var(--amber)'}">
+                ${bias!=null?pct(bias):'—'}</div>
+            <div class="metric-sub">${bias==null?'—':bias>0?'over-estimates':'under-estimates'}</div>
+        </div>`;
+
+    // ── Per-mode table
+    const byMode = groupBy(RESULTS, r => r.mode);
+    const modeRows = Object.entries(byMode).map(([m, rs]) => {
+        const md = median(rs.map(r=>r.absVar));
+        const bi = median(rs.map(r=>r.variance));
+        const ok = rs.filter(r=>r.absVar<=0.20).length;
+        return { m, n: rs.length, md, bi, ok,
+                 actual: rs.reduce((t,r)=>t+r.actual,0), est: rs.reduce((t,r)=>t+r.est,0) };
+    }).sort((a,b)=>b.n-a.n);
+
+    document.getElementById('mode-tbl').innerHTML = `
+        <thead><tr>
+            <th>Mode</th><th class="r">Tested</th><th class="r">Median error</th>
+            <th class="r">Bias</th><th class="r">Within 20%</th>
+            <th class="r">Actual total</th><th class="r">Estimated total</th><th class="r">Portfolio gap</th>
+        </tr></thead>
+        <tbody>${modeRows.map(r => `
+            <tr>
+                <td><span class="pill" style="background:${MODE_COLOR[r.m]}22;color:${MODE_COLOR[r.m]}">${r.m}</span></td>
+                <td class="r">${r.n}</td>
+                <td class="r ${varClass(r.md)}">${(r.md*100).toFixed(1)}%</td>
+                <td class="r">${pct(r.bi)}</td>
+                <td class="r">${Math.round(100*r.ok/r.n)}%</td>
+                <td class="r mono">${fmt0(r.actual)}</td>
+                <td class="r mono">${fmt0(r.est)}</td>
+                <td class="r ${varClass((r.est-r.actual)/r.actual)}">${pct((r.est-r.actual)/r.actual)}</td>
+            </tr>`).join('')}
+        ${modeRows.length ? '' : '<tr><td colspan="8" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
+        </tbody>`;
+
+    // ── Detail table
+    const sorted = [...RESULTS].sort((a,b) => {
+        const av = a[sortKey], bv = b[sortKey];
+        if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+        return sortDir * ((av ?? 0) - (bv ?? 0));
+    });
+    const th = (key, label, right) =>
+        `<th class="${right?'r':''}" onclick="setSort('${key}')">${label}${sortKey===key?(sortDir>0?' ▲':' ▼'):''}</th>`;
+
+    document.getElementById('detail-tbl').innerHTML = `
+        <thead><tr>
+            ${th('shipment_number','Shipment')}
+            ${th('mode','Mode')}
+            ${th('service_type','Service')}
+            ${th('shipTs','Date',true)}
+            ${th('coverage','Coverage',true)}
+            ${th('derivedCBM','CBM',true)}
+            ${th('derivedKG','Weight kg',true)}
+            ${th('actual','Actual USD',true)}
+            ${th('est','Estimate USD',true)}
+            ${th('variance','Variance',true)}
+            <th>Rate source</th>
+        </tr></thead>
+        <tbody>${sorted.map(r => `
+            <tr>
+                <td class="mono">${r.shipment_number || r.id.slice(0,8)}</td>
+                <td><span class="pill" style="background:${MODE_COLOR[r.mode]}22;color:${MODE_COLOR[r.mode]}">${r.mode}</span></td>
+                <td style="color:var(--muted)">${r.service_type || '—'}</td>
+                <td class="r" style="color:var(--muted)">${r.shipTs?fmtMonthYear(new Date(r.shipTs)):'—'}</td>
+                <td class="r">
+                    <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+                        <span>${(r.coverage*100).toFixed(0)}%</span>
+                        <span class="bar"><span style="width:${r.coverage*100}%;background:${r.coverage>=0.99?'var(--green)':r.coverage>=0.9?'var(--amber)':'var(--red)'}"></span></span>
+                    </div>
+                </td>
+                <td class="r mono">${fmt2(r.derivedCBM)}</td>
+                <td class="r mono">${fmt0(r.derivedKG)}</td>
+                <td class="r mono">${fmt0(r.actual)}</td>
+                <td class="r mono">${fmt0(r.est)}</td>
+                <td class="r ${varClass(r.variance)}">${pct(r.variance)}</td>
+                <td style="color:var(--muted);font-size:11px">${r.src}${r.rateUsed?` · ${fmt2(r.rateUsed)}`:''}</td>
+            </tr>`).join('')}
+        ${sorted.length ? '' : '<tr><td colspan="11" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
+        </tbody>`;
+
+    // ── Excluded table
+    const exGrouped = groupBy(EXCLUDED, e => e.reason);
+    document.getElementById('excl-sub').textContent =
+        `${EXCLUDED.length} shipments could not be tested. Fixing these is what widens coverage.`;
+    document.getElementById('excl-tbl').innerHTML = `
+        <thead><tr><th>Reason</th><th class="r">Shipments</th><th>Examples</th></tr></thead>
+        <tbody>${Object.entries(exGrouped)
+            .sort((a,b)=>b[1].length-a[1].length)
+            .map(([reason, list]) => `
+            <tr>
+                <td>${reason}</td>
+                <td class="r">${list.length}</td>
+                <td class="mono" style="color:var(--muted);font-size:11px;white-space:normal">
+                    ${list.slice(0,6).map(x=>x.shipment_number||x.id.slice(0,8)).join(', ')}${list.length>6?` +${list.length-6} more`:''}
+                </td>
+            </tr>`).join('')}
+        ${EXCLUDED.length ? '' : '<tr><td colspan="3" style="color:var(--muted)">Nothing excluded.</td></tr>'}
+        </tbody>`;
+
+    renderDist();
+}
+
+function setSort(key) {
+    if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = 1; }
+    render(Math.max(1, parseInt(document.getElementById('rate-window').value) || 12),
+           document.getElementById('basis').value);
+}
+
+function renderDist() {
+    const buckets = ['< -50%','-50 to -20%','-20 to 0%','0 to +20%','+20 to +50%','> +50%'];
+    const counts  = [0,0,0,0,0,0];
+    RESULTS.forEach(r => {
+        const v = r.variance;
+        if      (v < -0.5) counts[0]++;
+        else if (v < -0.2) counts[1]++;
+        else if (v < 0)    counts[2]++;
+        else if (v <= 0.2) counts[3]++;
+        else if (v <= 0.5) counts[4]++;
+        else               counts[5]++;
+    });
+    const colors = ['#ef4444','#fbbf24','#34d399','#34d399','#fbbf24','#ef4444'];
+    if (distChart) distChart.destroy();
+    distChart = new Chart(document.getElementById('dist-chart'), {
+        type: 'bar',
+        data: { labels: buckets,
+                datasets: [{ data: counts, backgroundColor: colors, borderRadius: 4 }] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false },
+                       tooltip: { callbacks: { label: c => `${c.raw} shipments` } } },
+            scales: {
+                x: { grid: { display:false }, ticks: { color:'#7c87a0', font:{size:11} } },
+                y: { grid: { color:'rgba(42,47,69,.6)' }, ticks: { color:'#7c87a0', precision:0 },
+                     title: { display:true, text:'Shipments', color:'#7c87a0', font:{size:11} } }
+            }
+        }
+    });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+    const [shipments, costs, tOrders, tLines, items, skuRows] = await Promise.all([
+        fetchAll('shipments',
+            'id,shipment_number,mode,status,service_type,destination_id,total_cbm,total_weight_kg,'
+            + 'origin_port_departure_date,actual_pickup_date,creation_date,created_at',
+            { archived_at: 'is.null' }),
+        fetchAll('shipment_costs',
+            'shipment_id,cost_type,amount,billed_weight_kg,billed_cbm',
+            { archived_at: 'is.null' }),
+        fetchAll('transfer_orders', 'id,shipment_id', {}).catch(() => []),
+        fetchAll('transfer_order_lines', 'transfer_order_id,item_id,quantity', {}).catch(() => []),
+        fetchAll('items', 'id,variant_sku', {}).catch(() => []),
+        fetchAll('vw_product_sku_coverage',
+            'sku,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,'
+            + 'master_carton_weight_kg,master_carton_quantity', {}).catch(() => []),
+    ]);
+
+    skuRows.forEach(r => {
+        if (!r.sku) return;
+        SKU_CAT[r.sku.trim().toUpperCase()] = {
+            l: parseFloat(r.master_carton_length_cm) || 0,
+            w: parseFloat(r.master_carton_width_cm)  || 0,
+            h: parseFloat(r.master_carton_height_cm) || 0,
+            kg: parseFloat(r.master_carton_weight_kg) || 0,
+            qpc: parseInt(r.master_carton_quantity)   || 0,
+        };
+    });
+
+    const skuByItem = {};
+    items.forEach(i => { if (i.variant_sku) skuByItem[i.id] = i.variant_sku.trim().toUpperCase(); });
+
+    const shipByTO = {};
+    tOrders.forEach(t => { shipByTO[t.id] = t.shipment_id; });
+
+    // Aggregate transfer order lines onto shipments
+    const linesByShip = {};
+    tLines.forEach(l => {
+        const sid = shipByTO[l.transfer_order_id];
+        if (!sid) return;
+        (linesByShip[sid] = linesByShip[sid] || []).push({
+            sku: skuByItem[l.item_id], qty: parseFloat(l.quantity) || 0,
+        });
+    });
+
+    const costsByShip = {};
+    costs.forEach(c => { (costsByShip[c.shipment_id] = costsByShip[c.shipment_id] || []).push(c); });
+
+    SHIPMENTS = shipments.map(s => {
+        const sc = costsByShip[s.id] || [];
+        const num = t => sc.filter(c => c.cost_type === t)
+                          .reduce((sum,c) => sum + (parseFloat(c.amount)||0), 0);
+        // billed_* repeat the shipment total on every cost line, so MAX not SUM
+        const bwkg = Math.max(0, ...sc.map(c => parseFloat(c.billed_weight_kg)||0))
+                     || parseFloat(s.total_weight_kg) || 0;
+        const bcbm = Math.max(0, ...sc.map(c => parseFloat(c.billed_cbm)||0))
+                     || parseFloat(s.total_cbm) || 0;
+
+        // Derive volume/weight from carton data, and measure how much of the
+        // cargo we could actually account for
+        let derivedCBM = 0, derivedKG = 0, unitsAll = 0, unitsOK = 0;
+        (linesByShip[s.id] || []).forEach(l => {
+            unitsAll += l.qty;
+            const p = l.sku ? SKU_CAT[l.sku] : null;
+            if (p && p.l > 0 && p.w > 0 && p.h > 0 && p.kg > 0 && p.qpc > 0) {
+                const cartons = Math.ceil(l.qty / p.qpc);
+                derivedCBM += (p.l * p.w * p.h / 1e6) * cartons;
+                derivedKG  += p.kg * cartons;
+                unitsOK    += l.qty;
+            }
+        });
+
+        const shipDate = s.origin_port_departure_date || s.actual_pickup_date
+                       || s.creation_date || s.created_at || null;
+
+        return {
+            ...s,
+            costs: sc,
+            freight_usd: num('freight'),      // name matches the estimator's rate fns
+            actualFreight: num('freight'),
+            actualAccess:  num('accessorials'),
+            bwkg, bcbm,
+            derivedCBM, derivedKG,
+            coverage: unitsAll > 0 ? unitsOK / unitsAll : 0,
+            shipTs: shipDate ? Date.parse(shipDate) : null,
+        };
+    });
+
+    const withCosts = SHIPMENTS.filter(s => s.actualFreight > 0).length;
+    document.getElementById('hdr-sub').textContent =
+        `${SHIPMENTS.length} shipments · ${withCosts} with freight costs · `
+      + `${Object.keys(SKU_CAT).length} SKUs in catalogue · leave-one-out`;
+
+    const now = new Date().toLocaleString('en-ZA',{ timeZone:'Africa/Johannesburg',
+        day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    document.getElementById('last-updated').innerHTML = `Updated<br><strong>${now} SAST</strong>`;
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    run();
+}
+
+init().catch(err => {
+    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('error-box');
+    el.style.display = 'block';
+    el.textContent = `Could not load data: ${err.message}`;
+    console.error(err);
+});
+</script>
+</body>
+</html>

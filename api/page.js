@@ -14,6 +14,7 @@ const PAGES = [
   'bundle-mapping',
   'transportation-costs',
   'shipping-estimator',
+  'validation',
 ];
 
 function parseCookies(cookieHeader) {

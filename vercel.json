@@ -12,6 +12,7 @@
     { "source": "/product-catalog.html",      "destination": "/api/page?p=product-catalog" },
     { "source": "/bundle-mapping.html",       "destination": "/api/page?p=bundle-mapping" },
     { "source": "/transportation-costs.html", "destination": "/api/page?p=transportation-costs" },
-    { "source": "/shipping-estimator.html",   "destination": "/api/page?p=shipping-estimator" }
+    { "source": "/shipping-estimator.html",   "destination": "/api/page?p=shipping-estimator" },
+    { "source": "/validation.html",           "destination": "/api/page?p=validation" }
   ]
 }
