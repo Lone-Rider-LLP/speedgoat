@@ -238,12 +238,17 @@
                     <input type="number" id="fcl-threshold" value="10" min="1" step="1" oninput="calculate()"
                            title="Show FCL container estimate when total CBM reaches this value">
                 </div>
+                <div class="field-group" style="flex:0 0 160px">
+                    <label title="Only use shipments from the last N months when computing rates">Rate window (months)</label>
+                    <input type="number" id="rate-window" value="12" min="1" max="60" step="1" oninput="onWindowChange()"
+                           title="Only use shipments from the last N months when computing rates. Sea freight rates roughly halved between 2024 and 2025, so a wide window blends two different markets.">
+                </div>
                 <div style="flex:1;min-width:200px;padding:10px 12px;background:var(--surface2);border-radius:7px;border:1px solid var(--border)">
                     <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px">How estimates are calculated</div>
                     <div style="font-size:11px;color:var(--muted);line-height:1.6">
-                        Air/Express: chargeable weight = max(actual, L×W×H÷6000)<br>
-                        Sea/Rail/Road: based on CBM where available, weight otherwise.<br>
-                        Rates derived from your historical shipment costs.
+                        Air/Express: chargeable weight = max(actual, L×W×H÷6000), priced per kg.<br>
+                        Sea/Rail/Road: priced per CBM, weight as fallback.<br>
+                        Rates are volume-weighted from historical freight costs (USD) within the rate window.
                     </div>
                 </div>
             </div>
@@ -381,11 +386,13 @@ const MIN_CONFIDENCE  = 3;  // min shipments to use dest-specific rate vs global
 const MIN_MODE_COUNT  = 5;  // min shipments for a mode to show any estimate at all
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let ALL_SHIPMENTS = []; // enriched with costs, total_cny, bwkg, bcbm
+let ALL_SHIPMENTS = []; // enriched with costs, total_usd, freight_usd, bwkg, bcbm, shipTs
 let WAREHOUSES    = []; // from warehouse_locations
-let RATES         = {}; // computed historical rates
+let RATES         = {}; // computed historical rates (user-selected window)
+let RATES_12M     = {}; // fixed 12-month comparison
+let RATES_6M      = {}; // fixed 6-month comparison
 let FCL_RATES     = null; // FCL-specific rates (flat per-container avg)
-let DISPLAY_CCY   = 'cny';
+let DISPLAY_CCY   = 'usd';
 let FX_RATES      = { USD:1, CNY:7.25, EUR:0.92, GBP:0.79, AUD:1.53, CAD:1.36 };
 let SKU_CATALOG   = {}; // { SKU_UPPER: { l, w, h, kg, name } }
 let ROW_IDS       = [];
@@ -398,9 +405,12 @@ async function fetchFXRates() {
         if (r.ok) { const d = await r.json(); if (d.rates) FX_RATES = { USD:1, ...d.rates }; }
     } catch(_) {}
 }
-function toUSD(cny) { return cny / (FX_RATES.CNY || 7.25); }
-function dispAmt(cny) { return DISPLAY_CCY === 'usd' ? toUSD(cny) : cny; }
-function dispLabel()  { return DISPLAY_CCY === 'usd' ? 'USD' : 'CNY'; }
+// NOTE: shipment_costs.amount is stored as a USD-equivalent value (Forge converts
+// at time of entry). The `currency` column records the original invoice currency
+// for reference only. So all internal amounts are USD and we convert OUT to CNY.
+function toCNY(usd) { return usd * (FX_RATES.CNY || 7.25); }
+function dispAmt(usd) { return DISPLAY_CCY === 'cny' ? toCNY(usd) : usd; }
+function dispLabel()  { return DISPLAY_CCY === 'cny' ? 'CNY' : 'USD'; }
 function fmtAmt(v)    { if (v == null) return '—'; const n = Number(v); if (n > 0 && n < 1) return '< 1'; return n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtPrec(v,d=2) { return v == null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function setCurrency(ccy) {
@@ -433,11 +443,28 @@ function avg(arr) { return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : nu
 function groupBy(arr, fn) { return arr.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
 
 function computeModeRates(ships) {
-    // Rates based on freight costs only — directly proportional to weight/CBM
-    const kgShips  = ships.filter(s => s.bwkg  > 0 && s.freight_cny > 0);
-    const cbmShips = ships.filter(s => s.bcbm  > 0 && s.freight_cny > 0);
-    const cpkg     = kgShips.length  ? avg(kgShips.map(s  => s.freight_cny / s.bwkg))  : null;
-    const cpcbm    = cbmShips.length ? avg(cbmShips.map(s => s.freight_cny / s.bcbm)) : null;
+    // Rates based on freight costs only — directly proportional to weight/CBM.
+    // Volume-weighted (total cost / total volume) rather than a mean of per-shipment
+    // ratios: an unweighted mean lets tiny shipments hitting carrier minimums
+    // dominate the average.
+    const kgShips  = ships.filter(s => s.bwkg  > 0 && s.freight_usd > 0);
+    const cbmShips = ships.filter(s => s.bcbm  > 0 && s.freight_usd > 0);
+    const sum      = (arr, fn) => arr.reduce((t,x) => t + fn(x), 0);
+    const cpkg     = kgShips.length
+        ? sum(kgShips,  s => s.freight_usd) / sum(kgShips,  s => s.bwkg) : null;
+    const cpcbm    = cbmShips.length
+        ? sum(cbmShips, s => s.freight_usd) / sum(cbmShips, s => s.bcbm) : null;
+    // Spread, so the card can show a range rather than false precision
+    const cbmRates = cbmShips.map(s => s.freight_usd / s.bcbm).sort((a,b)=>a-b);
+    const kgRates  = kgShips.map(s  => s.freight_usd / s.bwkg ).sort((a,b)=>a-b);
+    const cpcbmMin = cbmRates.length ? cbmRates[0] : null;
+    const cpcbmMax = cbmRates.length ? cbmRates[cbmRates.length-1] : null;
+    const cpkgMin  = kgRates.length  ? kgRates[0] : null;
+    const cpkgMax  = kgRates.length  ? kgRates[kgRates.length-1] : null;
+    // Date range actually behind these numbers
+    const ts       = ships.map(s => s.shipTs).filter(Boolean).sort((a,b)=>a-b);
+    const dateFrom = ts.length ? new Date(ts[0]) : null;
+    const dateTo   = ts.length ? new Date(ts[ts.length-1]) : null;
 
     // Cost type ratios (for the split chart)
     const allCosts = ships.flatMap(s => s.costs);
@@ -453,49 +480,83 @@ function computeModeRates(ships) {
     const accessorialTotal  = allCosts.filter(c=>c.cost_type==='accessorials').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
     const accessorialRatio  = freightTotal > 0 && accessorialTotal > 0 ? accessorialTotal / freightTotal : null;
 
-    return { cpkg, cpcbm, count: ships.length, kgCount: kgShips.length, cbmCount: cbmShips.length, typeRatios, accessorialRatio };
+    return { cpkg, cpcbm, cpcbmMin, cpcbmMax, cpkgMin, cpkgMax,
+             count: ships.length, kgCount: kgShips.length, cbmCount: cbmShips.length,
+             dateFrom, dateTo, typeRatios, accessorialRatio };
 }
 
-function computeAllRates(shipments) {
+// Restrict a shipment pool to the trailing N months. Shipments with no usable
+// date are kept only when no window is applied, so they can't silently skew a
+// window they may not belong to.
+function withinWindow(ships, months) {
+    if (!months || months <= 0) return ships;
+    const cutoff = Date.now() - months * 30.44 * 24 * 3600 * 1000;
+    return ships.filter(s => s.shipTs && s.shipTs >= cutoff);
+}
+
+function rateWindowMonths() {
+    const v = parseInt(document.getElementById('rate-window')?.value);
+    return Number.isFinite(v) && v > 0 ? v : 12;
+}
+
+function computeAllRates(shipments, months) {
     const rates = {};
     MODES.forEach(mode => {
-        const mShips = shipments.filter(s => {
+        const all = shipments.filter(s => {
             if (s.mode !== mode || s.costs.length === 0) return false;
             // Sea: exclude FCL — estimator is calibrated for LCL/smaller shipments only
             if (mode === 'sea' && s.service_type?.toUpperCase() === 'FCL') return false;
             return true;
         });
+        // Fall back to the full pool if the window leaves too little to work with
+        const windowed = withinWindow(all, months);
+        const mShips   = windowed.length >= MIN_MODE_COUNT ? windowed : all;
         rates[mode] = computeModeRates(mShips);
+        rates[mode].windowMonths  = months;
+        rates[mode].windowApplied = mShips === windowed;
+        rates[mode].poolTotal     = all.length;
         rates[mode].byDest     = {};
         // Track every destination this mode has EVER been used for (any count)
         rates[mode].byDestUsed = new Set(mShips.map(s => s.destination_id).filter(Boolean));
-        Object.entries(groupBy(mShips, s => s.destination_id)).forEach(([destId, ships]) => {
-            if (destId && ships.length >= MIN_CONFIDENCE)
-                rates[mode].byDest[destId] = computeModeRates(ships);
-        });
+        // Sea deliberately has NO destination split. Within a trailing window the
+        // per-destination sea samples are 1-3 shipments, and rate movement over time
+        // dominates any destination effect. Air/express have 100+ shipments so a
+        // destination split there is meaningful.
+        if (mode !== 'sea') {
+            Object.entries(groupBy(mShips, s => s.destination_id)).forEach(([destId, ships]) => {
+                if (destId && ships.length >= MIN_CONFIDENCE)
+                    rates[mode].byDest[destId] = computeModeRates(ships);
+            });
+        }
     });
     return rates;
 }
 
 // ── FCL rates (flat per-container avg, not per-CBM) ───────────────────────────
-function computeFCLRates(shipments) {
-    const fclShips = shipments.filter(s =>
+function computeFCLRates(shipments, months) {
+    const all = shipments.filter(s =>
         s.mode === 'sea' &&
         s.service_type?.toLowerCase() === 'fcl' &&
-        s.freight_cny > 0
+        s.freight_usd > 0
     );
+    const windowed = withinWindow(all, months);
+    const fclShips = windowed.length >= MIN_CONFIDENCE ? windowed : all;
     if (fclShips.length === 0) return { globalAvg: null, globalCount: 0, byDest: {} };
 
-    const globalAvg   = avg(fclShips.map(s => s.freight_cny));
+    const globalAvg   = avg(fclShips.map(s => s.freight_usd));
     const globalCount = fclShips.length;
+    const ts          = fclShips.map(s => s.shipTs).filter(Boolean).sort((a,b)=>a-b);
+    const dateFrom    = ts.length ? new Date(ts[0]) : null;
+    const dateTo      = ts.length ? new Date(ts[ts.length-1]) : null;
 
     const byDest = {};
     Object.entries(groupBy(fclShips, s => s.destination_id)).forEach(([destId, ships]) => {
         if (!destId || ships.length < MIN_CONFIDENCE) return;
-        byDest[destId] = { avg: avg(ships.map(s => s.freight_cny)), count: ships.length };
+        byDest[destId] = { avg: avg(ships.map(s => s.freight_usd)), count: ships.length };
     });
 
-    return { globalAvg, globalCount, byDest };
+    return { globalAvg, globalCount, byDest, dateFrom, dateTo,
+             windowApplied: fclShips === windowed, poolTotal: all.length };
 }
 
 function estimateFCL(totalCBM, destId) {
@@ -520,12 +581,32 @@ function estimateFCL(totalCBM, destId) {
 }
 
 // ── Estimate ──────────────────────────────────────────────────────────────────
-function getRate(mode, destId) {
+function getRate(mode, destId, rateSet) {
     // Use dest-specific rate if enough data, else global
-    const r = RATES[mode];
+    const r = (rateSet || RATES)[mode];
     if (!r) return null;
     if (destId && r.byDest?.[destId]) return { ...r.byDest[destId], sourceLabel: 'dest-specific' };
     return { ...r, sourceLabel: 'global avg' };
+}
+
+// Apply a rate set to a shipment. Air/express price on chargeable weight (they have
+// no CBM data at all); sea/rail/road price on CBM.
+function applyRate(mode, rate, totalCBM, totalWeightKg) {
+    if (!rate) return null;
+    if (mode === 'air' || mode === 'express') {
+        const volWeight        = totalCBM * 167; // IATA volumetric: L*W*H/6000 = CBM*167
+        const chargeableWeight = Math.max(totalWeightKg, volWeight);
+        if (rate.cpkg  != null) return { cost: rate.cpkg * chargeableWeight, chargeableWeight,
+                                         method: `${fmtPrec(chargeableWeight,1)} kg chargeable`, basis: 'kg' };
+        if (rate.cpcbm != null) return { cost: rate.cpcbm * totalCBM, chargeableWeight,
+                                         method: `${fmtPrec(totalCBM,3)} CBM`, basis: 'cbm' };
+        return null;
+    }
+    if (rate.cpcbm != null) return { cost: rate.cpcbm * totalCBM, chargeableWeight: totalWeightKg,
+                                     method: `${fmtPrec(totalCBM,3)} CBM`, basis: 'cbm' };
+    if (rate.cpkg  != null) return { cost: rate.cpkg * totalWeightKg, chargeableWeight: totalWeightKg,
+                                     method: `${fmtPrec(totalWeightKg,1)} kg`, basis: 'kg' };
+    return null;
 }
 
 function estimateMode(mode, totalCBM, totalWeightKg, destId) {
@@ -534,25 +615,50 @@ function estimateMode(mode, totalCBM, totalWeightKg, destId) {
     // If a specific destination is selected, only show modes that have
     // actually been used for that lane — avoids e.g. road China→Canada
     if (destId && r.byDestUsed && !r.byDestUsed.has(destId)) return null;
-    const rate = getRate(mode, destId);
 
-    let cost = null, method = null, chargeableWeight = totalWeightKg;
+    const rate    = getRate(mode, destId);
+    const applied = applyRate(mode, rate, totalCBM, totalWeightKg);
+    if (!applied) return null;
 
-    if (mode === 'air' || mode === 'express') {
-        const volWeight = totalCBM * 167; // IATA volumetric: L*W*H/6000 = CBM*167
-        chargeableWeight = Math.max(totalWeightKg, volWeight);
-        if (rate.cpkg != null) { cost = rate.cpkg * chargeableWeight; method = `${fmtPrec(chargeableWeight,1)} kg chargeable`; }
-        else if (rate.cpcbm != null) { cost = rate.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
-    } else {
-        // Sea / rail / road — CBM-first
-        if (rate.cpcbm != null) { cost = rate.cpcbm * totalCBM; method = `${fmtPrec(totalCBM,3)} CBM`; }
-        else if (rate.cpkg != null) { cost = rate.cpkg * totalWeightKg; method = `${fmtPrec(totalWeightKg,1)} kg`; chargeableWeight = totalWeightKg; }
-    }
+    // Parallel 12-month and 6-month figures so the user can see how sensitive the
+    // estimate is to the window, rather than trusting a single number.
+    const r12 = getRate(mode, destId, RATES_12M);
+    const r6  = getRate(mode, destId, RATES_6M);
+    const a12 = applyRate(mode, r12, totalCBM, totalWeightKg);
+    const a6  = applyRate(mode, r6,  totalCBM, totalWeightKg);
 
-    if (cost == null) return null;
-    const accessorialCost  = rate.accessorialRatio != null ? cost * rate.accessorialRatio : null;
     const accessorialRatio = rate.accessorialRatio;
-    return { cost, accessorialCost, accessorialRatio, method, chargeableWeight, rate };
+    const accessorialCost  = accessorialRatio != null ? applied.cost * accessorialRatio : null;
+    return {
+        cost: applied.cost, method: applied.method, chargeableWeight: applied.chargeableWeight,
+        basis: applied.basis, accessorialCost, accessorialRatio, rate,
+        cost12: a12 ? a12.cost : null, count12: r12 ? r12.count : null,
+        cost6:  a6  ? a6.cost  : null, count6:  r6  ? r6.count  : null,
+    };
+}
+
+// Rebuild the rate sets when the window changes, then re-render.
+function onWindowChange() {
+    const months = rateWindowMonths();
+    RATES     = computeAllRates(ALL_SHIPMENTS, months);
+    FCL_RATES = computeFCLRates(ALL_SHIPMENTS, months);
+    updateHeaderSub();
+    renderRatesTable(document.getElementById('dest')?.value || '');
+    calculate();
+}
+
+function fmtMonthYear(d) {
+    return d ? d.toLocaleDateString('en-GB', { month:'short', year:'numeric' }) : '—';
+}
+
+function updateHeaderSub() {
+    const months = rateWindowMonths();
+    const used   = new Set();
+    MODES.forEach(m => { const r = RATES[m]; if (r && r.count) used.add(m); });
+    const total  = MODES.reduce((t,m) => t + (RATES[m]?.count || 0), 0);
+    const el = document.getElementById('hdr-sub');
+    if (el) el.textContent =
+        `Rates from ${total} shipments in the last ${months} month${months===1?'':'s'} · USD`;
 }
 
 // ── Line item management ──────────────────────────────────────────────────────
@@ -745,9 +851,11 @@ function renderModeGrid(estimates, destId, fclEst) {
     if (fclEst) {
         const fclColor      = '#22d3ee';
         const primaryDisp   = dispAmt(fclEst.primaryCost);
-        const primaryAlt    = DISPLAY_CCY === 'usd'
-            ? `CNY ${fmtAmt(fclEst.primaryCost)}`
-            : `≈ USD ${fmtAmt(toUSD(fclEst.primaryCost))}`;
+        const primaryAlt    = DISPLAY_CCY === 'cny'
+            ? `≈ USD ${fmtAmt(fclEst.primaryCost)}`
+            : `CNY ${fmtAmt(toCNY(fclEst.primaryCost))}`;
+        const fclPeriod     = fclEst.dateFrom
+            ? `<strong>Period:</strong> ${fmtMonthYear(fclEst.dateFrom)} – ${fmtMonthYear(fclEst.dateTo)}<br>` : '';
         const confPct       = Math.min(100, (fclEst.primaryCount / 10) * 100);
         const secondaryHtml = fclEst.secondaryCost != null
             ? `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:6px;font-size:10px;color:var(--muted)">
@@ -762,6 +870,7 @@ function renderModeGrid(estimates, destId, fclEst) {
             <div class="mode-detail">
                 <strong>Avg per container</strong> (freight only)<br>
                 <strong>Container:</strong> ${fclEst.containerFit}<br>
+                ${fclPeriod}
                 <strong>Source:</strong> ${fclEst.primaryLabel} (${fclEst.primaryCount} shipment${fclEst.primaryCount!==1?'s':''})
                 ${secondaryHtml}
             </div>
@@ -798,12 +907,38 @@ function renderModeGrid(estimates, destId, fclEst) {
         const freightDisp     = dispAmt(e.cost);
         const accessDisp      = e.accessorialCost != null ? dispAmt(e.accessorialCost) : null;
         const totalDisp       = accessDisp != null ? freightDisp + accessDisp : freightDisp;
-        const altTotal        = DISPLAY_CCY === 'usd' ? `CNY ${fmtAmt(e.cost + (e.accessorialCost||0))}` : `≈ USD ${fmtAmt(toUSD(e.cost + (e.accessorialCost||0)))}`;
+        const altTotal        = DISPLAY_CCY === 'cny'
+            ? `≈ USD ${fmtAmt(e.cost + (e.accessorialCost||0))}`
+            : `CNY ${fmtAmt(toCNY(e.cost + (e.accessorialCost||0)))}`;
         const cpkgDisp        = e.rate.cpkg  ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpkg),  2)}/kg`  : null;
         const cpcbmDisp       = e.rate.cpcbm ? `${dispLabel()} ${fmtPrec(dispAmt(e.rate.cpcbm), 2)}/CBM` : null;
         const confPct         = Math.min(100, (e.rate.count / 20) * 100);
         const destLabel       = e.rate.sourceLabel === 'dest-specific' ? 'Dest-specific rate' : 'Global avg rate';
         const accPct          = e.accessorialRatio != null ? (e.accessorialRatio * 100).toFixed(1) : null;
+
+        // Observed rate spread — shows how much variance sits behind the average
+        const spread = e.basis === 'kg'
+            ? (e.rate.cpkgMin  != null ? `${fmtPrec(dispAmt(e.rate.cpkgMin), 2)}–${fmtPrec(dispAmt(e.rate.cpkgMax), 2)}/kg` : null)
+            : (e.rate.cpcbmMin != null ? `${fmtPrec(dispAmt(e.rate.cpcbmMin),2)}–${fmtPrec(dispAmt(e.rate.cpcbmMax),2)}/CBM` : null);
+        const dateRange = e.rate.dateFrom
+            ? `${fmtMonthYear(e.rate.dateFrom)} – ${fmtMonthYear(e.rate.dateTo)}` : null;
+        const windowNote = e.rate.windowApplied === false
+            ? `<span style="color:#fbbf24">window widened — too few in ${e.rate.windowMonths}mo</span><br>` : '';
+
+        // 12mo vs 6mo comparison, so window sensitivity is visible up front
+        const c12 = e.cost12 != null ? dispAmt(e.cost12 + (e.accessorialRatio ? e.cost12*e.accessorialRatio : 0)) : null;
+        const c6  = e.cost6  != null ? dispAmt(e.cost6  + (e.accessorialRatio ? e.cost6 *e.accessorialRatio : 0)) : null;
+        let windowCmp = '';
+        if (c12 != null || c6 != null) {
+            const delta = (c12 != null && c6 != null && c12 > 0)
+                ? `<span style="color:${Math.abs(c6/c12-1) > 0.25 ? '#fbbf24' : 'var(--muted)'}">${c6 > c12 ? '+' : ''}${((c6/c12-1)*100).toFixed(0)}%</span>`
+                : '';
+            windowCmp = `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:6px;font-size:10px;color:var(--muted);line-height:1.7">
+                <div style="font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:2px">Window comparison</div>
+                12 mo: <strong>${c12 != null ? fmtAmt(c12) : '—'}</strong> <span style="opacity:.6">(${e.count12 ?? '—'} ship.)</span><br>
+                6 mo: <strong>${c6 != null ? fmtAmt(c6) : '—'}</strong> <span style="opacity:.6">(${e.count6 ?? '—'} ship.)</span> ${delta}
+            </div>`;
+        }
 
         return `<div class="mode-card${isCheapest?' cheapest':''}">
             ${isCheapest ? '<span class="cheapest-badge">Cheapest</span>' : ''}
@@ -820,7 +955,11 @@ function renderModeGrid(estimates, destId, fclEst) {
                 <strong>Basis:</strong> ${e.method}<br>
                 ${cpkgDisp  ? `<strong>Freight rate:</strong> ${cpkgDisp}<br>` : ''}
                 ${cpcbmDisp ? `<strong>Freight rate:</strong> ${cpcbmDisp}<br>` : ''}
+                ${spread    ? `<strong>Observed range:</strong> ${spread}<br>` : ''}
+                ${dateRange ? `<strong>Period:</strong> ${dateRange}<br>` : ''}
+                ${windowNote}
                 <strong>Source:</strong> ${destLabel}
+                ${windowCmp}
             </div>
             <div class="confidence">
                 <div class="conf-bar"><div class="conf-fill" style="width:${confPct}%;background:${mColor}"></div></div>
@@ -1097,7 +1236,8 @@ async function init() {
 
     const [shipments, costs, locations, skuRows] = await Promise.all([
         fetchAll('shipments',
-            'id,mode,status,destination_id,total_weight_kg,total_cbm,service_type',
+            'id,shipment_number,mode,status,destination_id,total_weight_kg,total_cbm,service_type,'
+            + 'origin_port_departure_date,actual_pickup_date,creation_date,created_at',
             { archived_at: 'is.null' }),
         fetchAll('shipment_costs',
             'id,shipment_id,cost_type,amount,currency,billed_weight_kg,billed_cbm',
@@ -1125,20 +1265,30 @@ async function init() {
 
     ALL_SHIPMENTS = shipments.map(s => {
         const sc          = (costsByShipment[s.id]||[]).filter(c=>!c.archived_at);
-        const total_cny   = sc.reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
+        const total_usd   = sc.reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
         // Freight only — used for rate computation (freight is directly weight/CBM-linked)
-        const freight_cny = sc.filter(c=>c.cost_type==='freight')
+        const freight_usd = sc.filter(c=>c.cost_type==='freight')
                               .reduce((sum,c) => sum+(parseFloat(c.amount)||0), 0);
-        const bwkg        = sc.reduce((sum,c) => sum+(parseFloat(c.billed_weight_kg)||0), 0)
+        // billed_cbm / billed_weight_kg repeat the SHIPMENT's volume on every cost
+        // line, so they must be MAX-ed, not summed. Summing them multiplied the
+        // denominator by the line count and collapsed the per-CBM rate.
+        const bwkg        = Math.max(0, ...sc.map(c => parseFloat(c.billed_weight_kg)||0))
                             || parseFloat(s.total_weight_kg) || 0;
-        const bcbm        = sc.reduce((sum,c) => sum+(parseFloat(c.billed_cbm)||0), 0)
+        const bcbm        = Math.max(0, ...sc.map(c => parseFloat(c.billed_cbm)||0))
                             || parseFloat(s.total_cbm) || 0;
-        return { ...s, costs: sc, total_cny, freight_cny, bwkg, bcbm };
+        // Date used for the trailing rate window — sea uses port departure where known
+        const shipDate    = s.origin_port_departure_date || s.actual_pickup_date
+                            || s.creation_date || s.created_at || null;
+        const shipTs      = shipDate ? Date.parse(shipDate) : null;
+        return { ...s, costs: sc, total_usd, freight_usd, bwkg, bcbm, shipDate, shipTs };
     });
 
     WAREHOUSES = locations.filter(l => !l.archived_at);
-    RATES      = computeAllRates(ALL_SHIPMENTS);
-    FCL_RATES  = computeFCLRates(ALL_SHIPMENTS);
+    const months = rateWindowMonths();
+    RATES      = computeAllRates(ALL_SHIPMENTS, months);
+    RATES_12M  = computeAllRates(ALL_SHIPMENTS, 12);
+    RATES_6M   = computeAllRates(ALL_SHIPMENTS, 6);
+    FCL_RATES  = computeFCLRates(ALL_SHIPMENTS, months);
 
     // Populate destination dropdown
     const sel = document.getElementById('dest');
@@ -1150,9 +1300,7 @@ async function init() {
     });
 
     // Update header
-    const shipCount = ALL_SHIPMENTS.filter(s=>s.costs.length>0).length;
-    document.getElementById('hdr-sub').textContent =
-        `Based on ${shipCount} historical shipments · rates in CNY`;
+    updateHeaderSub();
 
     const now = new Date().toLocaleString('en-ZA',{ timeZone:'Africa/Johannesburg',
         day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
