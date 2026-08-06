@@ -59,7 +59,10 @@
         @media (max-width: 900px) { .inputs-grid { grid-template-columns: 1fr; } }
         .field-group { display: flex; flex-direction: column; gap: 8px; }
         .field-group label { font-size: 11px; font-weight: 700; letter-spacing: .08em;
-                             text-transform: uppercase; color: var(--muted); }
+                             text-transform: uppercase; color: var(--muted);
+                             white-space: nowrap; }
+        /* Keeps inputs on one baseline even if a label ever does wrap */
+        .field-group > input, .field-group > select { margin-top: auto; }
         .field-row { display: flex; gap: 8px; align-items: center; }
         .field-row .dim-sep { font-size: 13px; color: var(--muted); flex-shrink: 0; }
         input[type=number], select {
@@ -238,8 +241,8 @@
                     <input type="number" id="fcl-threshold" value="10" min="1" step="1" oninput="calculate()"
                            title="Show FCL container estimate when total CBM reaches this value">
                 </div>
-                <div class="field-group" style="flex:0 0 160px">
-                    <label title="Only use shipments from the last N months when computing rates">Rate window (months)</label>
+                <div class="field-group" style="flex:0 0 150px">
+                    <label title="Only use shipments from the last N months when computing rates">Rate window (mo)</label>
                     <input type="number" id="rate-window" value="12" min="1" max="60" step="1" oninput="onWindowChange()"
                            title="Only use shipments from the last N months when computing rates. Sea freight rates roughly halved between 2024 and 2025, so a wide window blends two different markets.">
                 </div>
