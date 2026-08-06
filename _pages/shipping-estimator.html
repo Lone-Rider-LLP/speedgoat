@@ -517,10 +517,16 @@ function computeAllRates(shipments, months) {
         rates[mode] = computeModeRates(mShips);
         rates[mode].windowMonths  = months;
         rates[mode].windowApplied = mShips === windowed;
+        rates[mode].windowCount   = windowed.length;
         rates[mode].poolTotal     = all.length;
         rates[mode].byDest     = {};
-        // Track every destination this mode has EVER been used for (any count)
-        rates[mode].byDestUsed = new Set(mShips.map(s => s.destination_id).filter(Boolean));
+        // Track every destination this mode has EVER been used for, from the FULL
+        // pool — whether a lane exists is a question about history, not about the
+        // rate window. Building this from the windowed pool wrongly suppressed
+        // modes whose lane simply had no sailings inside a short window.
+        rates[mode].byDestUsed = new Set(all.map(s => s.destination_id).filter(Boolean));
+        // Destinations served within the window, used only for messaging
+        rates[mode].byDestInWindow = new Set(windowed.map(s => s.destination_id).filter(Boolean));
         // Sea deliberately has NO destination split. Within a trailing window the
         // per-destination sea samples are 1-3 shipments, and rate movement over time
         // dominates any destination effect. Air/express have 100+ shipments so a
@@ -891,14 +897,18 @@ function renderModeGrid(estimates, destId, fclEst) {
 
         if (!e) {
             const r = RATES[mode];
+            const months           = r?.windowMonths ?? rateWindowMonths();
             const neverUsedForDest = destId && r?.byDestUsed && !r.byDestUsed.has(destId);
+            const noneInWindow     = r && r.windowCount === 0 && r.poolTotal > 0;
             const reason = neverUsedForDest
                 ? 'Not used for this destination'
-                : (!r || r.count === 0
-                    ? 'No historical data'
-                    : r.count < MIN_MODE_COUNT
-                        ? `Too few shipments (${r.count}) — need ${MIN_MODE_COUNT}+ for a reliable estimate`
-                        : 'Insufficient rate data');
+                : noneInWindow
+                    ? `No shipments in the last ${months} month${months===1?'':'s'} — widen the rate window (${r.poolTotal} on record overall)`
+                    : (!r || r.count === 0
+                        ? 'No historical data'
+                        : r.count < MIN_MODE_COUNT
+                            ? `Too few shipments (${r.count}) — need ${MIN_MODE_COUNT}+ for a reliable estimate`
+                            : 'Insufficient rate data');
             return `<div class="mode-card no-data">
                 <div class="mode-icon">${MODE_ICON[mode]}</div>
                 <div class="mode-name">${mode}</div>
@@ -925,8 +935,14 @@ function renderModeGrid(estimates, destId, fclEst) {
             : (e.rate.cpcbmMin != null ? `${fmtPrec(dispAmt(e.rate.cpcbmMin),2)}–${fmtPrec(dispAmt(e.rate.cpcbmMax),2)}/CBM` : null);
         const dateRange = e.rate.dateFrom
             ? `${fmtMonthYear(e.rate.dateFrom)} – ${fmtMonthYear(e.rate.dateTo)}` : null;
-        const windowNote = e.rate.windowApplied === false
-            ? `<span style="color:#fbbf24">window widened — too few in ${e.rate.windowMonths}mo</span><br>` : '';
+        const rMode = RATES[mode];
+        let windowNote = rMode?.windowApplied === false
+            ? `<span style="color:#fbbf24">Window widened — too few in ${rMode.windowMonths}mo</span><br>` : '';
+        // Lane exists historically but had no sailings inside the window, so this
+        // figure comes from the global rate rather than the lane's own history.
+        if (destId && rMode?.byDestInWindow && !rMode.byDestInWindow.has(destId)) {
+            windowNote += `<span style="color:#fbbf24">No sailings to this destination in the last ${rMode.windowMonths}mo — using global rate</span><br>`;
+        }
 
         // 12mo vs 6mo comparison, so window sensitivity is visible up front
         const c12 = e.cost12 != null ? dispAmt(e.cost12 + (e.accessorialRatio ? e.cost12*e.accessorialRatio : 0)) : null;
