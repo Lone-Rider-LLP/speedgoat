@@ -188,7 +188,9 @@
         <!-- Per-mode summary -->
         <div class="card">
             <div class="card-title">By mode</div>
-            <div class="card-sub">Median absolute variance per mode — the headline number to quote.</div>
+            <div class="card-sub">Median absolute variance per mode — the headline number to quote.
+                The accessorial columns show what the model assumes against what actually happened;
+                a wide actual range means one flat ratio cannot represent it.</div>
             <div class="tbl-wrap"><table class="v" id="mode-tbl"></table></div>
         </div>
 
@@ -202,6 +204,7 @@
                 <span><i style="background:var(--amber)"></i>20–50%</span>
                 <span><i style="background:var(--red)"></i>over 50%</span>
                 <span><i style="background:var(--border)"></i>coverage = share of units with carton data</span>
+                <span>access gap = actual minus model, in percentage points</span>
             </div>
         </div>
 
@@ -385,7 +388,7 @@ function run() {
         const rates = computeAllRates(pool, months);
         const isFCL = s.mode === 'sea' && s.service_type?.toUpperCase() === 'FCL';
 
-        let est = null, rateUsed = null, src = null;
+        let est = null, rateUsed = null, src = null, accEst = null;
         if (isFCL) {
             const fcl = computeFCLRates(pool, months);
             if (fcl) {
@@ -393,6 +396,8 @@ function run() {
                 est = d ? d.avg : fcl.globalAvg;
                 src = d ? 'FCL dest' : 'FCL global';
                 rateUsed = null;
+                // The FCL card is freight-only — it applies no accessorial ratio
+                accEst = null;
             }
         } else {
             const r = getRate(rates, s.mode, s.destination_id);
@@ -401,6 +406,7 @@ function run() {
                 est      = a.cost;
                 src      = r.sourceLabel;
                 rateUsed = a.basis === 'kg' ? r.cpkg : r.cpcbm;
+                accEst   = r.accessorialRatio;
                 if (basis === 'total' && r.accessorialRatio) est *= (1 + r.accessorialRatio);
             }
         }
@@ -411,8 +417,12 @@ function run() {
 
         const actual = basis === 'total' ? s.actualFreight + s.actualAccess : s.actualFreight;
         const variance = (est - actual) / actual;
+        // Accessorials as a share of freight: what actually happened vs what the
+        // estimator assumes. The gap between these two is the model's blind spot.
+        const accActual = s.actualFreight > 0 ? s.actualAccess / s.actualFreight : null;
+        const accGap    = (accActual != null && accEst != null) ? accActual - accEst : null;
         RESULTS.push({ ...s, est, actual, variance, absVar: Math.abs(variance),
-                       rateUsed, src, isFCL });
+                       rateUsed, src, isFCL, accActual, accEst, accGap });
     });
 
     render(months, basis);
@@ -466,7 +476,12 @@ function render(months, basis) {
         const md = median(rs.map(r=>r.absVar));
         const bi = median(rs.map(r=>r.variance));
         const ok = rs.filter(r=>r.absVar<=0.20).length;
+        // Accessorial spread: one ratio is applied to all, but actuals vary widely
+        const accs = rs.map(r=>r.accActual).filter(v => v != null && v > 0).sort((a,b)=>a-b);
+        const accModel = rs.map(r=>r.accEst).find(v => v != null) ?? null;
         return { m, n: rs.length, md, bi, ok,
+                 accMed: median(accs), accMin: accs[0] ?? null,
+                 accMax: accs[accs.length-1] ?? null, accModel,
                  actual: rs.reduce((t,r)=>t+r.actual,0), est: rs.reduce((t,r)=>t+r.est,0) };
     }).sort((a,b)=>b.n-a.n);
 
@@ -474,6 +489,8 @@ function render(months, basis) {
         <thead><tr>
             <th>Mode</th><th class="r">Tested</th><th class="r">Median error</th>
             <th class="r">Bias</th><th class="r">Within 20%</th>
+            <th class="r">Access % model</th><th class="r">Access % actual (median)</th>
+            <th class="r">Actual range</th>
             <th class="r">Actual total</th><th class="r">Estimated total</th><th class="r">Portfolio gap</th>
         </tr></thead>
         <tbody>${modeRows.map(r => `
@@ -483,11 +500,15 @@ function render(months, basis) {
                 <td class="r ${varClass(r.md)}">${(r.md*100).toFixed(1)}%</td>
                 <td class="r">${pct(r.bi)}</td>
                 <td class="r">${Math.round(100*r.ok/r.n)}%</td>
+                <td class="r mono" style="color:var(--muted)">${r.accModel!=null?(r.accModel*100).toFixed(1)+'%':'—'}</td>
+                <td class="r mono">${r.accMed!=null?(r.accMed*100).toFixed(1)+'%':'—'}</td>
+                <td class="r mono" style="font-size:11px;color:var(--muted)">
+                    ${r.accMin!=null?`${(r.accMin*100).toFixed(0)}–${(r.accMax*100).toFixed(0)}%`:'—'}</td>
                 <td class="r mono">${fmt0(r.actual)}</td>
                 <td class="r mono">${fmt0(r.est)}</td>
                 <td class="r ${varClass((r.est-r.actual)/r.actual)}">${pct((r.est-r.actual)/r.actual)}</td>
             </tr>`).join('')}
-        ${modeRows.length ? '' : '<tr><td colspan="8" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
+        ${modeRows.length ? '' : '<tr><td colspan="11" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
         </tbody>`;
 
     // ── Detail table
@@ -511,6 +532,9 @@ function render(months, basis) {
             ${th('actual','Actual USD',true)}
             ${th('est','Estimate USD',true)}
             ${th('variance','Variance',true)}
+            ${th('accActual','Access % actual',true)}
+            ${th('accEst','Access % model',true)}
+            ${th('accGap','Access gap',true)}
             <th>Rate source</th>
         </tr></thead>
         <tbody>${sorted.map(r => `
@@ -530,9 +554,13 @@ function render(months, basis) {
                 <td class="r mono">${fmt0(r.actual)}</td>
                 <td class="r mono">${fmt0(r.est)}</td>
                 <td class="r ${varClass(r.variance)}">${pct(r.variance)}</td>
+                <td class="r mono">${r.accActual!=null?(r.accActual*100).toFixed(1)+'%':'—'}</td>
+                <td class="r mono" style="color:var(--muted)">${r.accEst!=null?(r.accEst*100).toFixed(1)+'%':'—'}</td>
+                <td class="r ${r.accGap==null?'':Math.abs(r.accGap)<=0.10?'var-good':Math.abs(r.accGap)<=0.25?'var-ok':'var-bad'}">
+                    ${r.accGap!=null?(r.accGap>0?'+':'')+(r.accGap*100).toFixed(1)+' pts':'—'}</td>
                 <td style="color:var(--muted);font-size:11px">${r.src}${r.rateUsed?` · ${fmt2(r.rateUsed)}`:''}</td>
             </tr>`).join('')}
-        ${sorted.length ? '' : '<tr><td colspan="11" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
+        ${sorted.length ? '' : '<tr><td colspan="14" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
         </tbody>`;
 
     // ── Excluded table
