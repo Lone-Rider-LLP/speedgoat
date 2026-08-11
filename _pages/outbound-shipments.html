@@ -466,28 +466,67 @@ function renderLanes() {
         </tbody>`;
 }
 
+// Each column renders its own cell, so the order below is the only place
+// column order is defined — headers and cells can never drift apart.
 const COLS = [
-    ['createdTs',     'Created',      false],
-    ['shipment_number','Shipment',    false],
-    ['toNumbers',     'Transfer order', false],
-    ['originName',    'Origin',       false],
-    ['destName',      'Destination',  false],
-    ['mode',          'Mode',         false],
-    ['service_type',  'Service',      false],
-    ['skuCount',      'SKUs',         true],
-    ['units',         'Units',        true],
-    ['cbm',           'CBM',          true],
-    ['weight',        'Weight kg',    true],
-    ['density',       'Units/CBM',    true],
-    ['freight',       'Freight USD',  true],
-    ['perCBM',        '$/CBM',        true],
-    ['perUnit',       '$/unit',       true],
-    ['status',        'Status',       false],
-    ['pickupTs',      'Pickup',       false],
-    ['deliveredTs',   'Delivered',    false],
-    ['transitDays',   'Transit',      true],
-    ['coverage',      'Data',         true],
-    ['carrier',       'Carrier',      false],
+    { key:'createdTs', label:'Created', cell: s =>
+        `<td class="muted" style="font-size:11.5px">${dtm(s.createdTs)}</td>` },
+
+    { key:'shipment_number', label:'Shipment', cell: s =>
+        `<td class="mono">
+            <a class="forge" href="${FORGE_BASE}/shipments/${s.id}" target="_blank" rel="noopener"
+               title="Open ${s.shipment_number || 'this shipment'} in Forge">${s.shipment_number || s.id.slice(0,8)}</a>
+         </td>` },
+
+    { key:'toNumbers', label:'Transfer order', cell: s =>
+        `<td class="mono muted" style="font-size:11px">${s.toNumbers || '—'}</td>` },
+
+    { key:'originName', label:'Origin', cell: s => `<td class="lane">${s.originName}</td>` },
+    { key:'destName',   label:'Destination', cell: s => `<td class="lane">${s.destName}</td>` },
+
+    { key:'status', label:'Status', cell: s => {
+        const c = STATUS_COLOR[(s.status||'').toLowerCase()] || '#7c87a0';
+        return `<td><span class="pill" style="background:${c}22;color:${c}">${s.status||'—'}</span></td>`; } },
+
+    { key:'pickupTs',    label:'Pickup',    cell: s =>
+        `<td class="muted" style="font-size:11.5px">${dt(s.pickupTs)}</td>` },
+    { key:'deliveredTs', label:'Delivered', cell: s =>
+        `<td class="muted" style="font-size:11.5px">${dt(s.deliveredTs)}</td>` },
+    { key:'transitDays', label:'Transit', right:true, cell: s =>
+        `<td class="r ${s.onTime===false?'r_':s.onTime===true?'g':''}"
+             ${s.onTime!=null?`title="${s.onTime?'On time':'Late'} against the estimated delivery date"`:''}>
+            ${s.transitDays!=null?f0(s.transitDays)+' d':'—'}</td>` },
+
+    { key:'mode', label:'Mode', cell: s => {
+        const c = MODE_COLOR[s.mode] || '#7c87a0';
+        return `<td><span class="pill" style="background:${c}22;color:${c}">${s.mode||'—'}</span></td>`; } },
+    { key:'service_type', label:'Service', cell: s =>
+        `<td class="muted" style="font-size:11.5px">${s.service_type||'—'}</td>` },
+
+    { key:'skuCount', label:'SKUs',  right:true, cell: s => `<td class="r">${f0(s.skuCount)}</td>` },
+    { key:'units',    label:'Units', right:true, cell: s => `<td class="r mono">${f0(s.units)}</td>` },
+    { key:'cbm',      label:'CBM',   right:true, cell: s =>
+        `<td class="r mono">${f2(s.cbm)}<span class="muted" style="font-size:9.5px"> ${s.cbmSrc}</span></td>` },
+    { key:'weight',   label:'Weight kg', right:true, cell: s => `<td class="r mono">${f0(s.weight)}</td>` },
+    { key:'density',  label:'Units/CBM', right:true, cell: s =>
+        `<td class="r mono ${s.densityFlag?'a':''}"
+             ${s.densityFlag?'title="Unusual density — check declared volume or carton data"':''}>${f0(s.density)}</td>` },
+
+    { key:'freight', label:'Freight USD', right:true, cell: s =>
+        `<td class="r mono">${s.freight>0?'$'+f0(s.freight):'—'}</td>` },
+    { key:'perCBM',  label:'$/CBM',  right:true, cell: s =>
+        `<td class="r mono">${s.perCBM!=null?'$'+f0(s.perCBM):'—'}</td>` },
+    { key:'perUnit', label:'$/unit', right:true, cell: s =>
+        `<td class="r mono">${s.perUnit!=null?'$'+f2(s.perUnit):'—'}</td>` },
+
+    { key:'coverage', label:'Data', right:true, cell: s =>
+        `<td class="r">
+            <span class="bar"><span style="width:${(s.coverage||0)*100}%;background:${s.coverage>=0.99?'var(--green)':s.coverage>=0.9?'var(--amber)':'var(--red)'}"></span></span>
+            <span style="font-size:10.5px;color:var(--muted)"> ${Math.round((s.coverage||0)*100)}%</span>
+         </td>` },
+
+    { key:'carrier', label:'Carrier', cell: s =>
+        `<td class="muted" style="font-size:11.5px">${s.carrier||'—'}</td>` },
 ];
 
 function renderTable() {
@@ -503,46 +542,13 @@ function renderTable() {
     document.getElementById('row-count').textContent =
         `${sorted.length} shipment${sorted.length===1?'':'s'} shown.`;
 
-    const head = COLS.map(([k,label,right]) =>
-        `<th class="${right?'r':''}" onclick="setSort('${k}')">${label}${sortKey===k?(sortDir>0?' ▲':' ▼'):''}</th>`
+    const head = COLS.map(c =>
+        `<th class="${c.right?'r':''}" onclick="setSort('${c.key}')">${c.label}${sortKey===c.key?(sortDir>0?' ▲':' ▼'):''}</th>`
     ).join('');
 
     document.getElementById('ship-tbl').innerHTML = `
         <thead><tr>${head}</tr></thead>
-        <tbody>${sorted.map(s => {
-            const sc = STATUS_COLOR[(s.status||'').toLowerCase()] || '#7c87a0';
-            const mc = MODE_COLOR[s.mode] || '#7c87a0';
-            return `<tr>
-                <td class="muted" style="font-size:11.5px">${dtm(s.createdTs)}</td>
-                <td class="mono">
-                    <a class="forge" href="${FORGE_BASE}/shipments/${s.id}" target="_blank" rel="noopener"
-                       title="Open ${s.shipment_number || 'this shipment'} in Forge">${s.shipment_number || s.id.slice(0,8)}</a>
-                </td>
-                <td class="mono muted" style="font-size:11px">${s.toNumbers || '—'}</td>
-                <td class="lane">${s.originName}</td>
-                <td class="lane">${s.destName}</td>
-                <td><span class="pill" style="background:${mc}22;color:${mc}">${s.mode||'—'}</span></td>
-                <td class="muted" style="font-size:11.5px">${s.service_type||'—'}</td>
-                <td class="r">${f0(s.skuCount)}</td>
-                <td class="r mono">${f0(s.units)}</td>
-                <td class="r mono">${f2(s.cbm)}<span class="muted" style="font-size:9.5px"> ${s.cbmSrc}</span></td>
-                <td class="r mono">${f0(s.weight)}</td>
-                <td class="r mono ${s.densityFlag?'a':''}" ${s.densityFlag?'title="Unusual density — check declared volume or carton data"':''}>${f0(s.density)}</td>
-                <td class="r mono">${s.freight>0?'$'+f0(s.freight):'—'}</td>
-                <td class="r mono">${s.perCBM!=null?'$'+f0(s.perCBM):'—'}</td>
-                <td class="r mono">${s.perUnit!=null?'$'+f2(s.perUnit):'—'}</td>
-                <td><span class="pill" style="background:${sc}22;color:${sc}">${s.status||'—'}</span></td>
-                <td class="muted" style="font-size:11.5px">${dt(s.pickupTs)}</td>
-                <td class="muted" style="font-size:11.5px">${dt(s.deliveredTs)}</td>
-                <td class="r ${s.onTime===false?'r_':s.onTime===true?'g':''}">
-                    ${s.transitDays!=null?f0(s.transitDays)+' d':'—'}</td>
-                <td class="r">
-                    <span class="bar"><span style="width:${(s.coverage||0)*100}%;background:${s.coverage>=0.99?'var(--green)':s.coverage>=0.9?'var(--amber)':'var(--red)'}"></span></span>
-                    <span style="font-size:10.5px;color:var(--muted)"> ${Math.round((s.coverage||0)*100)}%</span>
-                </td>
-                <td class="muted" style="font-size:11.5px">${s.carrier||'—'}</td>
-            </tr>`;
-        }).join('')}
+        <tbody>${sorted.map(s => `<tr>${COLS.map(c => c.cell(s)).join('')}</tr>`).join('')}
         ${sorted.length?'':`<tr><td colspan="${COLS.length}" class="muted">No shipments match these filters.</td></tr>`}
         </tbody>`;
 }
