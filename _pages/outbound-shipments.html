@@ -213,6 +213,15 @@
             </div>
         </div>
 
+        <!-- Stage durations -->
+        <div class="section-label">Where the time goes</div>
+        <div class="card">
+            <div class="card-title">Median days per stage</div>
+            <div class="card-sub">From the shipment status history, so it reflects what actually happened.
+                Stages do not overlap, so they sum to the end-to-end total.</div>
+            <div class="tbl-wrap"><table class="d" id="stage-tbl"></table></div>
+        </div>
+
         <!-- Lane summary -->
         <div class="section-label">Lanes</div>
         <div class="card">
@@ -330,8 +339,61 @@ function render() {
     renderDQ();
     renderKPIs();
     renderCharts();
+    renderStages();
     renderLanes();
     renderTable();
+}
+
+// Median dwell per lifecycle stage, so a delay can be attributed to whoever
+// owns that stage rather than lumped into one "it took 9 days" figure.
+function renderStages() {
+    const stages = [
+        ['Created → confirmed',        'toConfirmDays', 'your team booking it'],
+        ['Confirmed → departed',       'awaitDepart',   'waiting on the carrier to sail/fly'],
+        ['Departed → arrived at port', 'atPortDays',    'in transit'],
+        ['Arrived → delivered',        'lastLegDays',   'customs and final leg'],
+    ];
+    // derived: confirmed -> departed
+    VIEW.forEach(s => {
+        s.awaitDepart = (s.departedTs && s.confirmedTs)
+            ? Math.max(0, Math.round((s.departedTs - s.confirmedTs)/86400000)) : null;
+    });
+
+    const rows = stages.map(([label, key, who]) => {
+        const vals = VIEW.map(s => s[key]).filter(v => v != null);
+        return { label, who, n: vals.length, med: median(vals),
+                 p90: vals.length ? [...vals].sort((a,b)=>a-b)[Math.floor(vals.length*0.9)] : null,
+                 max: vals.length ? Math.max(...vals) : null };
+    });
+    const totals = VIEW.map(s=>s.totalDays).filter(v=>v!=null);
+    const medTotal = median(totals);
+    const worst = Math.max(1, ...rows.map(r => r.med ?? 0));
+
+    document.getElementById('stage-tbl').innerHTML = `
+        <thead><tr>
+            <th>Stage</th><th>Owner</th><th class="r">Shipments</th>
+            <th class="r">Median</th><th class="r">90th pct</th><th class="r">Worst</th>
+            <th style="width:180px">Share of time</th>
+        </tr></thead>
+        <tbody>${rows.map(r => `
+            <tr>
+                <td style="font-weight:600">${r.label}</td>
+                <td class="muted" style="font-size:11.5px">${r.who}</td>
+                <td class="r">${r.n}</td>
+                <td class="r ${r.med==null?'muted':''}" style="font-weight:600">${r.med!=null?f1(r.med)+' d':'—'}</td>
+                <td class="r muted">${r.p90!=null?f0(r.p90)+' d':'—'}</td>
+                <td class="r muted">${r.max!=null?f0(r.max)+' d':'—'}</td>
+                <td><span class="bar" style="width:150px"><span
+                    style="width:${r.med!=null?Math.round(100*r.med/worst):0}%;background:var(--accent)"></span></span></td>
+            </tr>`).join('')}
+            <tr style="border-top:1px solid var(--border)">
+                <td style="font-weight:700">End to end</td>
+                <td class="muted" style="font-size:11.5px">created → delivered</td>
+                <td class="r">${totals.length}</td>
+                <td class="r" style="font-weight:700">${medTotal!=null?f1(medTotal)+' d':'—'}</td>
+                <td class="r muted" colspan="3"></td>
+            </tr>
+        </tbody>`;
 }
 
 // Surface fixable gaps so they can be tracked down to zero, rather than
@@ -395,11 +457,11 @@ function renderKPIs() {
                 total > freight ? `$${f0(total)} all costs` : 'freight only')
       + kpiCard('Cost per CBM', perCBM!=null?'$'+f0(perCBM):'—', 'freight ÷ CBM')
       + kpiCard('Cost per unit', perUnit!=null?'$'+f2(perUnit):'—', 'freight ÷ units')
-      + kpiCard('Median processing', medProc!=null?f0(medProc)+' d':'—',
-                `created → dispatched · ${proc.length} shipments`,
+      + kpiCard('Median to depart', medProc!=null?f0(medProc)+' d':'—',
+                `created → departed · ${proc.length} shipments`,
                 medProc==null?null:medProc<=3?'var(--green)':medProc<=7?'var(--amber)':'var(--red)')
       + kpiCard('Median transit', medTr!=null?f0(medTr)+' d':'—',
-                `dispatched → delivered · ${transit.length} shipments`)
+                `departed → delivered · ${transit.length} shipments`)
       + kpiCard('On time', otPct!=null?Math.round(otPct)+'%':'—',
                 `${rated.length} with an ETA`,
                 otPct==null?null:otPct>=80?'var(--green)':otPct>=60?'var(--amber)':'var(--red)')
@@ -541,22 +603,28 @@ const COLS = [
         const c = STATUS_COLOR[(s.status||'').toLowerCase()] || '#7c87a0';
         return `<td><span class="pill" style="background:${c}22;color:${c}">${s.status||'—'}</span></td>`; } },
 
-    // ── Timeline: created → dispatched → delivered, with the duration of each leg
+    // ── Timeline from status history: created → confirmed → departed → delivered
     { key:'createdTs', label:'Created', cell: s =>
         `<td class="muted" style="font-size:11.5px" title="${dtm(s.createdTs)}">${dt(s.createdTs)}</td>` },
-    { key:'pickupTs', label:'Dispatched', cell: s =>
+    { key:'confirmedTs', label:'Confirmed', cell: s =>
         `<td class="muted" style="font-size:11.5px"
-             title="Actual pickup — when the carrier collected">${dt(s.pickupTs)}</td>` },
-    { key:'processDays', label:'Processing', right:true, cell: s =>
-        `<td class="r ${s.processDays==null?'':s.processDays<=3?'g':s.processDays<=7?'a':'r_'}"
-             title="Days from shipment created to dispatched">
-            ${s.processDays!=null?f0(s.processDays)+' d':'—'}</td>` },
+             title="First reached status 'confirmed'">${dt(s.confirmedTs)}</td>` },
+    { key:'departedTs', label:'Departed', cell: s =>
+        `<td class="muted" style="font-size:11.5px"
+             title="First reached status 'departed' (falls back to carrier pickup)">${dt(s.departedTs)}</td>` },
     { key:'deliveredTs', label:'Delivered', cell: s =>
         `<td class="muted" style="font-size:11.5px">${dt(s.deliveredTs)}</td>` },
+    { key:'processDays', label:'To depart', right:true, cell: s =>
+        `<td class="r ${s.processDays==null?'':s.processDays<=3?'g':s.processDays<=7?'a':'r_'}"
+             title="Days from created to departed${s.toConfirmDays!=null?` · ${s.toConfirmDays}d of it waiting to be confirmed`:''}">
+            ${s.processDays!=null?f0(s.processDays)+' d':'—'}</td>` },
     { key:'transitDays', label:'Transit', right:true, cell: s =>
         `<td class="r ${s.onTime===false?'r_':s.onTime===true?'g':''}"
-             ${s.onTime!=null?`title="${s.onTime?'On time':'Late'} against the estimated delivery date"`:'title="Days from dispatch to delivery"'}>
+             ${s.onTime!=null?`title="${s.onTime?'On time':'Late'} against the estimated delivery date"`:'title="Days from departure to delivery"'}>
             ${s.transitDays!=null?f0(s.transitDays)+' d':'—'}</td>` },
+    { key:'totalDays', label:'Total', right:true, cell: s =>
+        `<td class="r mono" title="Created to delivered, end to end">
+            ${s.totalDays!=null?f0(s.totalDays)+' d':'—'}</td>` },
 
     { key:'mode', label:'Mode', cell: s => {
         const c = MODE_COLOR[s.mode] || '#7c87a0';
@@ -619,33 +687,55 @@ function setSort(k) {
     renderTable();
 }
 
+// Header and value are declared together, so the two can never drift apart.
+const CSV_FIELDS = [
+    ['Created',          s => s.createdTs ? new Date(s.createdTs).toISOString() : ''],
+    ['Shipment',         s => s.shipment_number],
+    ['Transfer order',   s => s.toNumbers],
+    ['Origin',           s => s.originName],
+    ['Destination',      s => s.destName],
+    ['Status',           s => s.status],
+    ['Mode',             s => s.mode],
+    ['Service',          s => s.service_type],
+    ['Confirmed',        s => d10(s.confirmedTs)],
+    ['Departed',         s => d10(s.departedTs)],
+    ['Arrived at port',  s => d10(s.arrivedTs)],
+    ['Est delivery',     s => d10(s.etaTs)],
+    ['Delivered',        s => d10(s.deliveredTs)],
+    ['Days to confirm',  s => s.toConfirmDays],
+    ['Days to depart',   s => s.processDays],
+    ['Days at port',     s => s.atPortDays],
+    ['Days final leg',   s => s.lastLegDays],
+    ['Transit days',     s => s.transitDays],
+    ['Total days',       s => s.totalDays],
+    ['On time',          s => s.onTime == null ? '' : s.onTime ? 'yes' : 'no'],
+    ['SKUs',             s => s.skuCount],
+    ['Units',            s => s.units],
+    ['CBM',              s => s.cbm?.toFixed(4)],
+    ['CBM source',       s => s.cbmSrc],
+    ['Weight kg',        s => s.weight?.toFixed(1)],
+    ['Units per CBM',    s => s.density?.toFixed(0)],
+    ['Freight USD',      s => s.freight?.toFixed(2)],
+    ['Total cost USD',   s => s.totalCost?.toFixed(2)],
+    ['USD per CBM',      s => s.perCBM?.toFixed(2)],
+    ['USD per unit',     s => s.perUnit?.toFixed(2)],
+    ['Carton data %',    s => s.coverage != null ? (s.coverage*100).toFixed(0) : ''],
+    ['Carrier',          s => s.carrier],
+    ['Container',        s => s.container_number],
+    ['BOL',              s => s.bill_of_lading],
+    ['Tracking',         s => s.tracking_reference],
+    ['Forge link',       s => `${FORGE_BASE}/shipments/${s.id}`],
+];
+const d10 = ts => ts ? new Date(ts).toISOString().slice(0,10) : '';
+
 function exportCSV() {
-    const cols = ['Created','Shipment','Transfer order','Origin','Destination','Mode','Service',
-                  'SKUs','Units','CBM','CBM source','Weight kg','Units per CBM','Freight USD',
-                  'Total cost USD','USD per CBM','USD per unit','Status','Pickup','Port departure',
-                  'Est delivery','Actual delivery','Processing days','Transit days','On time','Carton data %',
-                  'Carrier','Container','BOL','Tracking','Forge link'];
     const esc = v => {
         if (v == null) return '';
         const s = String(v);
         return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
     };
-    const rows = VIEW.map(s => [
-        s.createdTs ? new Date(s.createdTs).toISOString() : '',
-        s.shipment_number, s.toNumbers, s.originName, s.destName, s.mode, s.service_type,
-        s.skuCount, s.units, s.cbm?.toFixed(4), s.cbmSrc, s.weight?.toFixed(1),
-        s.density?.toFixed(0), s.freight?.toFixed(2), s.totalCost?.toFixed(2),
-        s.perCBM?.toFixed(2), s.perUnit?.toFixed(2), s.status,
-        s.pickupTs ? new Date(s.pickupTs).toISOString().slice(0,10) : '',
-        s.departTs ? new Date(s.departTs).toISOString().slice(0,10) : '',
-        s.etaTs ? new Date(s.etaTs).toISOString().slice(0,10) : '',
-        s.deliveredTs ? new Date(s.deliveredTs).toISOString().slice(0,10) : '',
-        s.processDays, s.transitDays, s.onTime == null ? '' : s.onTime ? 'yes' : 'no',
-        s.coverage != null ? (s.coverage*100).toFixed(0) : '',
-        s.carrier, s.container_number, s.bill_of_lading, s.tracking_reference,
-        `${FORGE_BASE}/shipments/${s.id}`,
-    ].map(esc).join(','));
-    const csv = [cols.join(','), ...rows].join('\n');
+    const rows = VIEW.map(s => CSV_FIELDS.map(([,fn]) => esc(fn(s))).join(','));
+    const csv = [CSV_FIELDS.map(([h]) => h).join(','), ...rows].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
     a.download = `outbound-shipments-${new Date().toISOString().slice(0,10)}.csv`;
@@ -655,7 +745,7 @@ function exportCSV() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-    const [shipments, costs, tOrders, tLines, items, skuRows, locations] = await Promise.all([
+    const [shipments, costs, statusHist, tOrders, tLines, items, skuRows, locations] = await Promise.all([
         fetchAll('shipments',
             'id,shipment_number,mode,status,service_type,origin_id,destination_id,'
             + 'total_cbm,total_weight_kg,creation_date,created_at,actual_pickup_date,'
@@ -667,6 +757,9 @@ async function init() {
         fetchAll('shipment_costs',
             'shipment_id,cost_type,amount,billed_cbm,billed_weight_kg',
             { archived_at: 'is.null' }),
+        fetchAll('shipment_status_history',
+            'shipment_id,previous_status,new_status,changed_at,effective_date,note', {})
+            .catch(()=>[]),
         fetchTry('transfer_orders',
             ['id,shipment_id,transfer_order_number', 'id,shipment_id,reference',
              'id,shipment_id,name', 'id,shipment_id']),
@@ -713,6 +806,20 @@ async function init() {
     const costsByShip = {};
     costs.forEach(c => { (costsByShip[c.shipment_id] = costsByShip[c.shipment_id] || []).push(c); });
 
+    // Status history -> first timestamp each shipment reached each status.
+    // effective_date is the business date the user recorded; changed_at is when
+    // the system logged it. Prefer effective_date where set, since auto ShipsGo
+    // entries leave it null but manual ones are backdated deliberately.
+    const stageTs = {};   // shipment_id -> { status: ts }
+    statusHist.forEach(h => {
+        const ts = Date.parse(h.effective_date || h.changed_at || '') || null;
+        if (!ts || !h.shipment_id) return;
+        const m = stageTs[h.shipment_id] = stageTs[h.shipment_id] || {};
+        // "Shipment created" logs as draft -> draft; treat it as the created marker
+        const key = (h.new_status === h.previous_status) ? 'created' : h.new_status;
+        if (!m[key] || ts < m[key]) m[key] = ts;   // earliest arrival at each status
+    });
+
     const DAY = 86400000;
     ALL = shipments.map(s => {
         const sc  = costsByShip[s.id] || [];
@@ -751,15 +858,34 @@ async function init() {
         const departTs    = Date.parse(s.origin_port_departure_date || '') || null;
         const etaTs       = Date.parse(s.estimated_delivery_date || '') || null;
         const deliveredTs = Date.parse(s.actual_delivery_date || '') || null;
-        // Dispatch = carrier pickup, falling back to port departure.
-        // Kept separate from createdTs so the two legs never overlap: processing
-        // is created -> dispatched, transit is dispatched -> delivered.
-        const dispatchTs  = pickupTs || departTs || null;
-        const processDays = (dispatchTs && createdTs)
-            ? Math.max(0, Math.round((dispatchTs - createdTs)/DAY)) : null;
-        const transitDays = (deliveredTs && dispatchTs)
-            ? Math.round((deliveredTs - dispatchTs)/DAY) : null;
-        const onTime      = (deliveredTs && etaTs) ? deliveredTs <= etaTs + DAY : null;
+        // Status-history timestamps, which reflect what actually happened rather
+        // than the date fields, several of which are unpopulated.
+        const st          = stageTs[s.id] || {};
+        const stCreated   = st.created || null;
+        const confirmedTs = st.confirmed || null;
+        const stDeparted  = st.departed || null;
+        const arrivedTs   = st.arrived_at_port || null;
+        const stDelivered = st.delivered || null;
+
+        // Prefer status history, fall back to the date columns
+        const createdOn   = stCreated || createdTs;
+        const departedTs  = stDeparted || pickupTs || departTs || null;
+        const deliveredOn = stDelivered || deliveredTs;
+
+        // Legs, kept non-overlapping
+        const toConfirmDays = (confirmedTs && createdOn)
+            ? Math.max(0, Math.round((confirmedTs - createdOn)/DAY)) : null;
+        const processDays   = (departedTs && createdOn)
+            ? Math.max(0, Math.round((departedTs - createdOn)/DAY)) : null;
+        const transitDays   = (deliveredOn && departedTs)
+            ? Math.round((deliveredOn - departedTs)/DAY) : null;
+        const atPortDays    = (arrivedTs && departedTs)
+            ? Math.max(0, Math.round((arrivedTs - departedTs)/DAY)) : null;
+        const lastLegDays   = (deliveredOn && arrivedTs)
+            ? Math.max(0, Math.round((deliveredOn - arrivedTs)/DAY)) : null;
+        const totalDays     = (deliveredOn && createdOn)
+            ? Math.round((deliveredOn - createdOn)/DAY) : null;
+        const onTime        = (deliveredOn && etaTs) ? deliveredOn <= etaTs + DAY : null;
 
         const density = cbm > 0 && units > 0 ? units/cbm : null;
 
@@ -771,8 +897,11 @@ async function init() {
             freight, totalCost,
             perCBM: cbm>0 && freight>0 ? freight/cbm : null,
             perUnit: units>0 && freight>0 ? freight/units : null,
-            createdTs, pickupTs, departTs, etaTs, deliveredTs,
-            dispatchTs, processDays, transitDays, onTime,
+            createdTs: createdOn, pickupTs, etaTs,
+            confirmedTs, departedTs, arrivedTs, deliveredTs: deliveredOn,
+            toConfirmDays, processDays, atPortDays, lastLegDays,
+            transitDays, totalDays, onTime,
+            hasHistory: !!stCreated,
             coverage: units>0 ? okUnits/units : 0,
             density,
             // flag implausible density so a bad CBM is visible rather than silent
