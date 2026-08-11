@@ -180,6 +180,15 @@
             </div>
         </div>
 
+        <!-- Data quality -->
+        <div id="dq" style="display:none;background:rgba(251,191,36,.08);
+             border:1px solid rgba(251,191,36,.3);border-radius:9px;
+             padding:12px 16px;margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+                        color:var(--amber);margin-bottom:7px">Missing data in the current view</div>
+            <div id="dq-body" style="font-size:12.5px;color:var(--text);line-height:1.75"></div>
+        </div>
+
         <!-- KPIs -->
         <div class="section-label">Summary</div>
         <div class="kpi-grid" id="kpis"></div>
@@ -254,7 +263,14 @@ const dtm = ts => ts ? new Date(ts).toLocaleString('en-GB',{day:'2-digit',month:
 function median(a){ if(!a.length) return null; const s=[...a].sort((x,y)=>x-y),m=s.length>>1;
                     return s.length%2?s[m]:(s[m-1]+s[m])/2; }
 function groupBy(a,fn){ return a.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
-const whName = id => id ? (WH[id] || id.slice(0,8)) : '—';
+// Blank origin/destination is missing data in Forge rather than a rendering
+// quirk, so label it explicitly instead of showing a bare dash.
+const NOT_SET = 'Not set';
+const whName = id => id ? (WH[id] || id.slice(0,8)) : NOT_SET;
+const laneCell = name => name === NOT_SET
+    ? `<td class="lane" style="color:var(--amber);font-style:italic"
+           title="Not recorded in Forge — open the shipment and set it">${NOT_SET}</td>`
+    : `<td class="lane">${name}</td>`;
 
 async function fetchAll(table, select, extra = {}) {
     const PAGE = 1000; let rows = [], offset = 0;
@@ -310,10 +326,39 @@ function apply() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function render() {
+    renderDQ();
     renderKPIs();
     renderCharts();
     renderLanes();
     renderTable();
+}
+
+// Surface fixable gaps so they can be tracked down to zero, rather than
+// quietly distorting the lane and cost figures.
+function renderDQ() {
+    const checks = [
+        ['no origin set',      s => !s.origin_id],
+        ['no destination set', s => !s.destination_id],
+        ['no CBM from any source', s => !(s.cbm > 0)],
+        ['no freight cost recorded', s => !(s.freight > 0)
+              && (s.status||'').toLowerCase() !== 'draft'
+              && (s.status||'').toLowerCase() !== 'cancelled'],
+        ['no transfer order linked', s => !s.toNumbers],
+    ];
+    const parts = checks.map(([label, fn]) => {
+        const hits = VIEW.filter(fn);
+        if (!hits.length) return null;
+        const eg = hits.slice(0,4).map(s =>
+            `<a class="forge" href="${FORGE_BASE}/shipments/${s.id}" target="_blank" rel="noopener"
+                style="font-weight:500">${s.shipment_number || s.id.slice(0,8)}</a>`).join(', ');
+        return `<div><strong>${hits.length}</strong> ${label}
+                <span class="muted">· ${eg}${hits.length>4?` +${hits.length-4} more`:''}</span></div>`;
+    }).filter(Boolean);
+
+    const box = document.getElementById('dq');
+    if (!parts.length) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    document.getElementById('dq-body').innerHTML = parts.join('');
 }
 
 function kpiCard(label, value, sub, tone) {
@@ -450,7 +495,8 @@ function renderLanes() {
         </tr></thead>
         <tbody>${rows.map(r=>`
             <tr>
-                <td style="font-weight:600">${r.lane}</td>
+                <td style="font-weight:600${r.lane.includes(NOT_SET)?';color:var(--amber)':''}"
+                    ${r.lane.includes(NOT_SET)?'title="Origin or destination missing in Forge — these shipments are excluded from the real lane totals"':''}>${r.lane}</td>
                 <td>${r.modes.map(m=>`<span class="pill" style="background:${(MODE_COLOR[m]||'#7c87a0')}22;color:${MODE_COLOR[m]||'#7c87a0'};margin-right:3px">${m}</span>`).join('')}</td>
                 <td class="r">${r.n}</td>
                 <td class="r mono">${f1(r.cbm)}</td>
@@ -481,8 +527,8 @@ const COLS = [
     { key:'toNumbers', label:'Transfer order', cell: s =>
         `<td class="mono muted" style="font-size:11px">${s.toNumbers || '—'}</td>` },
 
-    { key:'originName', label:'Origin', cell: s => `<td class="lane">${s.originName}</td>` },
-    { key:'destName',   label:'Destination', cell: s => `<td class="lane">${s.destName}</td>` },
+    { key:'originName', label:'Origin',      cell: s => laneCell(s.originName) },
+    { key:'destName',   label:'Destination', cell: s => laneCell(s.destName) },
 
     { key:'status', label:'Status', cell: s => {
         const c = STATUS_COLOR[(s.status||'').toLowerCase()] || '#7c87a0';
