@@ -10,6 +10,7 @@ const fs = require('fs');
 
 const PAGES = [
   'index',
+  'outbound-shipments',
   'product-catalog',
   'bundle-mapping',
   'transportation-costs',

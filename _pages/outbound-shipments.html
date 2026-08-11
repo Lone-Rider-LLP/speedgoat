@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedGoat — Outbound Shipments</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg: #0c0e16; --surface: #161926; --surface2: #1e2235;
+            --border: #2a2f45; --text: #e2e8f0; --muted: #7c87a0;
+            --accent: #f97316; --green: #34d399; --blue: #60a5fa;
+            --red: #ef4444; --amber: #fbbf24; --purple: #a78bfa;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 14px; min-height: 100vh; }
+
+        header { background: var(--surface); border-bottom: 1px solid var(--border);
+                 padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+        .hdr-left h1 { font-size: 18px; font-weight: 600; }
+        .hdr-left p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+        #last-updated { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.6; }
+        .logout-btn { font-size: 12px; color: var(--muted); text-decoration: none;
+                      border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+                      white-space: nowrap; transition: color .15s, border-color .15s; }
+        .logout-btn:hover { color: var(--text); border-color: var(--muted); }
+
+        .page-nav { display: flex; background: var(--surface);
+                    border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; }
+        .page-nav a { padding: 10px 16px; font-size: 13px; text-decoration: none;
+                      color: var(--muted); border-bottom: 2px solid transparent;
+                      margin-bottom: -1px; transition: color .15s, border-color .15s; white-space: nowrap; }
+        .page-nav a:hover  { color: var(--text); }
+        .page-nav a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+        main { padding: 22px 28px; max-width: 1800px; }
+
+        #loading { display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; height: 60vh; gap: 14px; color: var(--muted); }
+        .spinner { width: 34px; height: 34px; border: 3px solid var(--border);
+                   border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #error-box { display: none; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+                     border-radius: 8px; padding: 14px 18px; color: #fca5a5; margin: 16px 0; }
+
+        .card { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 10px; padding: 18px 22px; margin-bottom: 16px; }
+        .card-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+        .card-sub   { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+        .section-label { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                         text-transform: uppercase; color: var(--muted); margin: 22px 0 10px; }
+        .section-label:first-child { margin-top: 0; }
+
+        /* ── Filters ── */
+        .filters { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+        .field-group { display: flex; flex-direction: column; gap: 7px; }
+        .field-group label { font-size: 11px; font-weight: 700; letter-spacing: .08em;
+                             text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+        .field-group > input, .field-group > select { margin-top: auto; }
+        input, select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 7px; padding: 9px 12px;
+            font-size: 13px; width: 100%; outline: none; transition: border-color .15s; }
+        input:focus, select:focus { border-color: var(--accent); }
+        select option { background: var(--surface2); }
+        .btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+               border-radius: 7px; padding: 9px 14px; font-size: 12.5px; cursor: pointer;
+               transition: border-color .15s, color .15s; white-space: nowrap; }
+        .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ── KPI tiles ── */
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px,1fr)); gap: 13px; }
+        .kpi-card { background: var(--surface); border: 1px solid var(--border);
+                    border-radius: 10px; padding: 15px 18px; }
+        .kpi-label { font-size: 10px; font-weight: 700; letter-spacing: .1em;
+                     text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+        .kpi-value { font-size: 26px; font-weight: 700; line-height: 1; }
+        .kpi-sub   { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+
+        /* ── Tables ── */
+        .tbl-wrap { overflow-x: auto; }
+        table.d { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        table.d th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .07em;
+                     text-transform: uppercase; color: var(--muted); padding: 8px 9px;
+                     border-bottom: 1px solid var(--border); white-space: nowrap;
+                     cursor: pointer; user-select: none; position: sticky; top: 0;
+                     background: var(--surface); z-index: 2; }
+        table.d th:hover { color: var(--text); }
+        table.d th.r, table.d td.r { text-align: right; }
+        table.d td { padding: 7px 9px; border-bottom: 1px solid rgba(42,47,69,.5); white-space: nowrap; }
+        table.d tbody tr:hover { background: var(--surface2); }
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+        .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px;
+                border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; }
+        .lane { color: var(--muted); font-size: 11.5px; }
+        .bar { display: inline-block; height: 5px; border-radius: 3px; background: var(--border);
+               position: relative; width: 42px; vertical-align: middle; }
+        .bar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+        .g { color: var(--green); } .a { color: var(--amber); } .r_ { color: var(--red); }
+        .muted { color: var(--muted); }
+        .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px;
+                  color: var(--muted); margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="hdr-left">
+        <h1>Outbound Shipments</h1>
+        <p id="hdr-sub">Loading…</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+        <div id="last-updated"></div>
+        <a href="/api/auth/logout" class="logout-btn">Sign out</a>
+    </div>
+</header>
+
+<nav class="page-nav">
+    <a href="index.html">Warehouse KPIs</a>
+    <a href="outbound-shipments.html" class="active">Outbound Shipments</a>
+    <a href="product-catalog.html">Product Catalog</a>
+    <a href="bundle-mapping.html">Bundle Mapping</a>
+    <a href="transportation-costs.html">Transportation Costs</a>
+    <a href="shipping-estimator.html">Shipping Estimator</a>
+    <a href="validation.html">Validation</a>
+</nav>
+
+<main>
+    <div id="loading"><div class="spinner"></div><span>Fetching shipments, transfer orders and costs…</span></div>
+    <div id="error-box"></div>
+
+    <div id="app" style="display:none">
+
+        <!-- Filters -->
+        <div class="card">
+            <div class="filters">
+                <div class="field-group" style="flex:0 0 140px">
+                    <label>Created</label>
+                    <select id="f-range" onchange="apply()">
+                        <option value="90">Last 90 days</option>
+                        <option value="180">Last 180 days</option>
+                        <option value="365" selected>Last 12 months</option>
+                        <option value="730">Last 24 months</option>
+                        <option value="0">All time</option>
+                    </select>
+                </div>
+                <div class="field-group" style="flex:0 0 180px">
+                    <label>Origin</label>
+                    <select id="f-origin" onchange="apply()"><option value="">All origins</option></select>
+                </div>
+                <div class="field-group" style="flex:0 0 180px">
+                    <label>Destination</label>
+                    <select id="f-dest" onchange="apply()"><option value="">All destinations</option></select>
+                </div>
+                <div class="field-group" style="flex:0 0 130px">
+                    <label>Mode</label>
+                    <select id="f-mode" onchange="apply()"><option value="">All modes</option></select>
+                </div>
+                <div class="field-group" style="flex:0 0 140px">
+                    <label>Status</label>
+                    <select id="f-status" onchange="apply()"><option value="">All statuses</option></select>
+                </div>
+                <div class="field-group" style="flex:1;min-width:170px">
+                    <label>Search</label>
+                    <input type="text" id="f-search" placeholder="Shipment no, carrier, container…" oninput="apply()">
+                </div>
+                <div class="field-group" style="flex:0 0 auto">
+                    <label>&nbsp;</label>
+                    <button class="btn" onclick="exportCSV()">Export CSV</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="section-label">Summary</div>
+        <div class="kpi-grid" id="kpis"></div>
+
+        <!-- Charts -->
+        <div class="section-label">Volume &amp; mix</div>
+        <div class="card">
+            <div class="card-title">Monthly volume</div>
+            <div class="card-sub">CBM shipped per month, with shipment count overlaid.</div>
+            <div style="position:relative;height:230px"><canvas id="ch-month"></canvas></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="chart-row">
+            <div class="card" style="margin-bottom:0">
+                <div class="card-title">By destination</div>
+                <div class="card-sub">Total CBM per receiving warehouse.</div>
+                <div style="position:relative;height:250px"><canvas id="ch-dest"></canvas></div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+                <div class="card-title">By mode</div>
+                <div class="card-sub">Freight spend split by transport mode.</div>
+                <div style="position:relative;height:250px"><canvas id="ch-mode"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Lane summary -->
+        <div class="section-label">Lanes</div>
+        <div class="card">
+            <div class="card-title">Origin → destination</div>
+            <div class="card-sub">Cost per CBM is the comparable number across lanes. Transit is pickup to delivery.</div>
+            <div class="tbl-wrap"><table class="d" id="lane-tbl"></table></div>
+        </div>
+
+        <!-- Detail -->
+        <div class="section-label">Shipments</div>
+        <div class="card">
+            <div class="card-title">Detail</div>
+            <div class="card-sub">Click any heading to sort. <span id="row-count"></span></div>
+            <div class="tbl-wrap"><table class="d" id="ship-tbl"></table></div>
+            <div class="legend">
+                <span>CBM source: <strong>billed</strong> = from carrier invoice · <strong>decl</strong> = shipment record · <strong>calc</strong> = from carton data</span>
+                <span>Data = share of units with complete carton dimensions</span>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const URL_BASE = `${window.location.origin}/api/supabase`;
+const ANON_KEY = '';
+const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+
+const MODE_COLOR = { air:'#60a5fa', sea:'#34d399', express:'#f97316',
+                     rail:'#a78bfa', road:'#fbbf24' };
+const STATUS_COLOR = { delivered:'#34d399', 'in transit':'#60a5fa', pending:'#fbbf24',
+                       cancelled:'#ef4444', draft:'#7c87a0' };
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let ALL = [], VIEW = [], WH = {}, SKU_CAT = {};
+let sortKey = 'createdTs', sortDir = -1;
+let chMonth = null, chDest = null, chMode = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const f0 = v => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
+const f1 = v => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1});
+const f2 = v => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const dt  = ts => ts ? new Date(ts).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
+const dtm = ts => ts ? new Date(ts).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+function median(a){ if(!a.length) return null; const s=[...a].sort((x,y)=>x-y),m=s.length>>1;
+                    return s.length%2?s[m]:(s[m-1]+s[m])/2; }
+function groupBy(a,fn){ return a.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).push(x);return m;},{}); }
+const whName = id => id ? (WH[id] || id.slice(0,8)) : '—';
+
+async function fetchAll(table, select, extra = {}) {
+    const PAGE = 1000; let rows = [], offset = 0;
+    while (true) {
+        const u = new URL(`${URL_BASE}/rest/v1/${table}`);
+        u.searchParams.set('select', select);
+        u.searchParams.set('limit', PAGE);
+        u.searchParams.set('offset', offset);
+        for (const [k,v] of Object.entries(extra)) u.searchParams.set(k, v);
+        const r = await fetch(u, { headers: HEADERS, cache: 'no-store' });
+        if (!r.ok) throw new Error(`${table}: ${r.status}`);
+        const page = await r.json();
+        rows = rows.concat(page);
+        if (page.length < PAGE) break;
+        offset += PAGE;
+    }
+    return rows;
+}
+// Try a rich column list, fall back if a column does not exist
+async function fetchTry(table, selects, extra = {}) {
+    for (const sel of selects) {
+        try { return await fetchAll(table, sel, extra); } catch (_) {}
+    }
+    return [];
+}
+
+// ── Filtering ─────────────────────────────────────────────────────────────────
+function apply() {
+    const days   = parseInt(document.getElementById('f-range').value) || 0;
+    const origin = document.getElementById('f-origin').value;
+    const dest   = document.getElementById('f-dest').value;
+    const mode   = document.getElementById('f-mode').value;
+    const status = document.getElementById('f-status').value;
+    const q      = document.getElementById('f-search').value.trim().toLowerCase();
+    const cutoff = days ? Date.now() - days*86400000 : null;
+
+    VIEW = ALL.filter(s => {
+        if (cutoff && (!s.createdTs || s.createdTs < cutoff)) return false;
+        if (origin && s.origin_id      !== origin) return false;
+        if (dest   && s.destination_id !== dest)   return false;
+        if (mode   && s.mode           !== mode)   return false;
+        if (status && (s.status||'')   !== status) return false;
+        if (q) {
+            const hay = [s.shipment_number, s.carrier, s.container_number,
+                         s.bill_of_lading, s.tracking_reference, s.toNumbers]
+                        .filter(Boolean).join(' ').toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
+        return true;
+    });
+    render();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+    renderKPIs();
+    renderCharts();
+    renderLanes();
+    renderTable();
+}
+
+function kpiCard(label, value, sub, tone) {
+    return `<div class="kpi-card">
+        <div class="kpi-label">${label}</div>
+        <div class="kpi-value"${tone?` style="color:${tone}"`:''}>${value}</div>
+        <div class="kpi-sub">${sub}</div>
+    </div>`;
+}
+
+function renderKPIs() {
+    const n       = VIEW.length;
+    const cbm     = VIEW.reduce((t,s)=>t+(s.cbm||0),0);
+    const units   = VIEW.reduce((t,s)=>t+(s.units||0),0);
+    const freight = VIEW.reduce((t,s)=>t+(s.freight||0),0);
+    const total   = VIEW.reduce((t,s)=>t+(s.totalCost||0),0);
+    const perCBM  = cbm > 0 ? freight/cbm : null;
+    const perUnit = units > 0 ? freight/units : null;
+    const transit = VIEW.map(s=>s.transitDays).filter(v=>v!=null && v>0);
+    const medTr   = median(transit);
+    const rated   = VIEW.filter(s => s.onTime != null);
+    const otPct   = rated.length ? 100*rated.filter(s=>s.onTime).length/rated.length : null;
+    const inTr    = VIEW.filter(s => !s.deliveredTs && (s.status||'').toLowerCase() !== 'cancelled').length;
+    const cov     = VIEW.filter(s=>s.units>0);
+    const medCov  = cov.length ? median(cov.map(s=>s.coverage)) : null;
+
+    document.getElementById('kpis').innerHTML =
+        kpiCard('Shipments', f0(n), `${inTr} still in transit`)
+      + kpiCard('Total CBM', f1(cbm), `${f0(units)} units`)
+      + kpiCard('Freight spend', '$' + f0(freight),
+                total > freight ? `$${f0(total)} all costs` : 'freight only')
+      + kpiCard('Cost per CBM', perCBM!=null?'$'+f0(perCBM):'—', 'freight ÷ CBM')
+      + kpiCard('Cost per unit', perUnit!=null?'$'+f2(perUnit):'—', 'freight ÷ units')
+      + kpiCard('Median transit', medTr!=null?f0(medTr)+' d':'—',
+                `${transit.length} delivered`)
+      + kpiCard('On time', otPct!=null?Math.round(otPct)+'%':'—',
+                `${rated.length} with an ETA`,
+                otPct==null?null:otPct>=80?'var(--green)':otPct>=60?'var(--amber)':'var(--red)')
+      + kpiCard('Carton data', medCov!=null?Math.round(medCov*100)+'%':'—', 'median coverage',
+                medCov==null?null:medCov>=0.9?'var(--green)':medCov>=0.5?'var(--amber)':'var(--red)');
+}
+
+function renderCharts() {
+    // Monthly CBM + count
+    const byMonth = groupBy(VIEW.filter(s=>s.createdTs), s => {
+        const d = new Date(s.createdTs);
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    });
+    const months = Object.keys(byMonth).sort();
+    if (chMonth) chMonth.destroy();
+    chMonth = new Chart(document.getElementById('ch-month'), {
+        data: {
+            labels: months.map(m => {
+                const [y,mo] = m.split('-');
+                return new Date(y, mo-1).toLocaleDateString('en-GB',{month:'short',year:'2-digit'});
+            }),
+            datasets: [
+                { type:'bar', label:'CBM', yAxisID:'y',
+                  data: months.map(m => +byMonth[m].reduce((t,s)=>t+(s.cbm||0),0).toFixed(1)),
+                  backgroundColor:'#34d39988', borderColor:'#34d399', borderWidth:1, borderRadius:4 },
+                { type:'line', label:'Shipments', yAxisID:'y1',
+                  data: months.map(m => byMonth[m].length),
+                  borderColor:'#f97316', backgroundColor:'#f97316', tension:.3, pointRadius:3 },
+            ]
+        },
+        options: { responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{ labels:{ color:'#7c87a0', boxWidth:12, font:{size:11} } } },
+            scales:{
+                x:{ grid:{display:false}, ticks:{color:'#7c87a0',font:{size:10}} },
+                y:{ position:'left', grid:{color:'rgba(42,47,69,.6)'},
+                    ticks:{color:'#7c87a0',font:{size:10}},
+                    title:{display:true,text:'CBM',color:'#7c87a0',font:{size:10}} },
+                y1:{ position:'right', grid:{display:false},
+                     ticks:{color:'#7c87a0',precision:0,font:{size:10}},
+                     title:{display:true,text:'Shipments',color:'#7c87a0',font:{size:10}} },
+            } }
+    });
+
+    // By destination
+    const byDest = groupBy(VIEW, s => whName(s.destination_id));
+    const dRows = Object.entries(byDest)
+        .map(([k,v]) => ({ k, cbm: v.reduce((t,s)=>t+(s.cbm||0),0) }))
+        .sort((a,b)=>b.cbm-a.cbm).slice(0,10);
+    if (chDest) chDest.destroy();
+    chDest = new Chart(document.getElementById('ch-dest'), {
+        type:'bar',
+        data:{ labels:dRows.map(r=>r.k),
+               datasets:[{ data:dRows.map(r=>+r.cbm.toFixed(1)),
+                           backgroundColor:'#60a5fa99', borderColor:'#60a5fa',
+                           borderWidth:1, borderRadius:4 }] },
+        options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{display:false},
+                      tooltip:{ callbacks:{ label:c=>`${c.raw} CBM` } } },
+            scales:{ x:{ grid:{color:'rgba(42,47,69,.6)'}, ticks:{color:'#7c87a0',font:{size:10}} },
+                     y:{ grid:{display:false}, ticks:{color:'#7c87a0',font:{size:10}} } } }
+    });
+
+    // By mode — freight spend
+    const byMode = groupBy(VIEW.filter(s=>s.mode), s=>s.mode);
+    const mKeys  = Object.keys(byMode);
+    if (chMode) chMode.destroy();
+    chMode = new Chart(document.getElementById('ch-mode'), {
+        type:'doughnut',
+        data:{ labels:mKeys,
+               datasets:[{ data:mKeys.map(m=>+byMode[m].reduce((t,s)=>t+(s.freight||0),0).toFixed(0)),
+                           backgroundColor:mKeys.map(m=>MODE_COLOR[m]||'#7c87a0'),
+                           borderColor:'#161926', borderWidth:2 }] },
+        options:{ responsive:true, maintainAspectRatio:false, cutout:'58%',
+            plugins:{ legend:{ position:'right', labels:{color:'#7c87a0',boxWidth:12,font:{size:11}} },
+                      tooltip:{ callbacks:{ label:c=>`${c.label}: $${f0(c.raw)}` } } } }
+    });
+}
+
+function renderLanes() {
+    const lanes = groupBy(VIEW, s => `${whName(s.origin_id)} → ${whName(s.destination_id)}`);
+    const rows = Object.entries(lanes).map(([lane, ss]) => {
+        const cbm  = ss.reduce((t,s)=>t+(s.cbm||0),0);
+        const frt  = ss.reduce((t,s)=>t+(s.freight||0),0);
+        const un   = ss.reduce((t,s)=>t+(s.units||0),0);
+        const tr   = ss.map(s=>s.transitDays).filter(v=>v!=null&&v>0);
+        const rated= ss.filter(s=>s.onTime!=null);
+        const modes= [...new Set(ss.map(s=>s.mode).filter(Boolean))];
+        return { lane, n: ss.length, cbm, frt, un, modes,
+                 perCBM: cbm>0?frt/cbm:null, perUnit: un>0?frt/un:null,
+                 medTr: median(tr),
+                 otPct: rated.length?100*rated.filter(s=>s.onTime).length/rated.length:null };
+    }).sort((a,b)=>b.cbm-a.cbm);
+
+    document.getElementById('lane-tbl').innerHTML = `
+        <thead><tr>
+            <th>Lane</th><th>Modes</th><th class="r">Shipments</th><th class="r">CBM</th>
+            <th class="r">Units</th><th class="r">Freight</th><th class="r">$/CBM</th>
+            <th class="r">$/unit</th><th class="r">Median transit</th><th class="r">On time</th>
+        </tr></thead>
+        <tbody>${rows.map(r=>`
+            <tr>
+                <td style="font-weight:600">${r.lane}</td>
+                <td>${r.modes.map(m=>`<span class="pill" style="background:${(MODE_COLOR[m]||'#7c87a0')}22;color:${MODE_COLOR[m]||'#7c87a0'};margin-right:3px">${m}</span>`).join('')}</td>
+                <td class="r">${r.n}</td>
+                <td class="r mono">${f1(r.cbm)}</td>
+                <td class="r mono">${f0(r.un)}</td>
+                <td class="r mono">${r.frt>0?'$'+f0(r.frt):'—'}</td>
+                <td class="r mono">${r.perCBM!=null?'$'+f0(r.perCBM):'—'}</td>
+                <td class="r mono">${r.perUnit!=null?'$'+f2(r.perUnit):'—'}</td>
+                <td class="r">${r.medTr!=null?f0(r.medTr)+' d':'—'}</td>
+                <td class="r ${r.otPct==null?'muted':r.otPct>=80?'g':r.otPct>=60?'a':'r_'}">
+                    ${r.otPct!=null?Math.round(r.otPct)+'%':'—'}</td>
+            </tr>`).join('')}
+        ${rows.length?'':'<tr><td colspan="10" class="muted">No shipments match these filters.</td></tr>'}
+        </tbody>`;
+}
+
+const COLS = [
+    ['createdTs',     'Created',      false],
+    ['shipment_number','Shipment',    false],
+    ['toNumbers',     'Transfer order', false],
+    ['originName',    'Origin',       false],
+    ['destName',      'Destination',  false],
+    ['mode',          'Mode',         false],
+    ['service_type',  'Service',      false],
+    ['skuCount',      'SKUs',         true],
+    ['units',         'Units',        true],
+    ['cbm',           'CBM',          true],
+    ['weight',        'Weight kg',    true],
+    ['density',       'Units/CBM',    true],
+    ['freight',       'Freight USD',  true],
+    ['perCBM',        '$/CBM',        true],
+    ['perUnit',       '$/unit',       true],
+    ['status',        'Status',       false],
+    ['pickupTs',      'Pickup',       false],
+    ['deliveredTs',   'Delivered',    false],
+    ['transitDays',   'Transit',      true],
+    ['coverage',      'Data',         true],
+    ['carrier',       'Carrier',      false],
+];
+
+function renderTable() {
+    const sorted = [...VIEW].sort((a,b) => {
+        let av = a[sortKey], bv = b[sortKey];
+        if (av == null) av = sortDir === 1 ? Infinity : -Infinity;
+        if (bv == null) bv = sortDir === 1 ? Infinity : -Infinity;
+        if (typeof av === 'string' || typeof bv === 'string')
+            return sortDir * String(av).localeCompare(String(bv));
+        return sortDir * (av - bv);
+    });
+
+    document.getElementById('row-count').textContent =
+        `${sorted.length} shipment${sorted.length===1?'':'s'} shown.`;
+
+    const head = COLS.map(([k,label,right]) =>
+        `<th class="${right?'r':''}" onclick="setSort('${k}')">${label}${sortKey===k?(sortDir>0?' ▲':' ▼'):''}</th>`
+    ).join('');
+
+    document.getElementById('ship-tbl').innerHTML = `
+        <thead><tr>${head}</tr></thead>
+        <tbody>${sorted.map(s => {
+            const sc = STATUS_COLOR[(s.status||'').toLowerCase()] || '#7c87a0';
+            const mc = MODE_COLOR[s.mode] || '#7c87a0';
+            return `<tr>
+                <td class="muted" style="font-size:11.5px">${dtm(s.createdTs)}</td>
+                <td class="mono" style="font-weight:600">${s.shipment_number || s.id.slice(0,8)}</td>
+                <td class="mono muted" style="font-size:11px">${s.toNumbers || '—'}</td>
+                <td class="lane">${s.originName}</td>
+                <td class="lane">${s.destName}</td>
+                <td><span class="pill" style="background:${mc}22;color:${mc}">${s.mode||'—'}</span></td>
+                <td class="muted" style="font-size:11.5px">${s.service_type||'—'}</td>
+                <td class="r">${f0(s.skuCount)}</td>
+                <td class="r mono">${f0(s.units)}</td>
+                <td class="r mono">${f2(s.cbm)}<span class="muted" style="font-size:9.5px"> ${s.cbmSrc}</span></td>
+                <td class="r mono">${f0(s.weight)}</td>
+                <td class="r mono ${s.densityFlag?'a':''}" ${s.densityFlag?'title="Unusual density — check declared volume or carton data"':''}>${f0(s.density)}</td>
+                <td class="r mono">${s.freight>0?'$'+f0(s.freight):'—'}</td>
+                <td class="r mono">${s.perCBM!=null?'$'+f0(s.perCBM):'—'}</td>
+                <td class="r mono">${s.perUnit!=null?'$'+f2(s.perUnit):'—'}</td>
+                <td><span class="pill" style="background:${sc}22;color:${sc}">${s.status||'—'}</span></td>
+                <td class="muted" style="font-size:11.5px">${dt(s.pickupTs)}</td>
+                <td class="muted" style="font-size:11.5px">${dt(s.deliveredTs)}</td>
+                <td class="r ${s.onTime===false?'r_':s.onTime===true?'g':''}">
+                    ${s.transitDays!=null?f0(s.transitDays)+' d':'—'}</td>
+                <td class="r">
+                    <span class="bar"><span style="width:${(s.coverage||0)*100}%;background:${s.coverage>=0.99?'var(--green)':s.coverage>=0.9?'var(--amber)':'var(--red)'}"></span></span>
+                    <span style="font-size:10.5px;color:var(--muted)"> ${Math.round((s.coverage||0)*100)}%</span>
+                </td>
+                <td class="muted" style="font-size:11.5px">${s.carrier||'—'}</td>
+            </tr>`;
+        }).join('')}
+        ${sorted.length?'':`<tr><td colspan="${COLS.length}" class="muted">No shipments match these filters.</td></tr>`}
+        </tbody>`;
+}
+
+function setSort(k) {
+    if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = k === 'createdTs' ? -1 : 1; }
+    renderTable();
+}
+
+function exportCSV() {
+    const cols = ['Created','Shipment','Transfer order','Origin','Destination','Mode','Service',
+                  'SKUs','Units','CBM','CBM source','Weight kg','Units per CBM','Freight USD',
+                  'Total cost USD','USD per CBM','USD per unit','Status','Pickup','Port departure',
+                  'Est delivery','Actual delivery','Transit days','On time','Carton data %',
+                  'Carrier','Container','BOL','Tracking'];
+    const esc = v => {
+        if (v == null) return '';
+        const s = String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const rows = VIEW.map(s => [
+        s.createdTs ? new Date(s.createdTs).toISOString() : '',
+        s.shipment_number, s.toNumbers, s.originName, s.destName, s.mode, s.service_type,
+        s.skuCount, s.units, s.cbm?.toFixed(4), s.cbmSrc, s.weight?.toFixed(1),
+        s.density?.toFixed(0), s.freight?.toFixed(2), s.totalCost?.toFixed(2),
+        s.perCBM?.toFixed(2), s.perUnit?.toFixed(2), s.status,
+        s.pickupTs ? new Date(s.pickupTs).toISOString().slice(0,10) : '',
+        s.departTs ? new Date(s.departTs).toISOString().slice(0,10) : '',
+        s.etaTs ? new Date(s.etaTs).toISOString().slice(0,10) : '',
+        s.deliveredTs ? new Date(s.deliveredTs).toISOString().slice(0,10) : '',
+        s.transitDays, s.onTime == null ? '' : s.onTime ? 'yes' : 'no',
+        s.coverage != null ? (s.coverage*100).toFixed(0) : '',
+        s.carrier, s.container_number, s.bill_of_lading, s.tracking_reference,
+    ].map(esc).join(','));
+    const csv = [cols.join(','), ...rows].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+    a.download = `outbound-shipments-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+    const [shipments, costs, tOrders, tLines, items, skuRows, locations] = await Promise.all([
+        fetchAll('shipments',
+            'id,shipment_number,mode,status,service_type,origin_id,destination_id,'
+            + 'total_cbm,total_weight_kg,creation_date,created_at,actual_pickup_date,'
+            + 'origin_port_departure_date,arrival_at_destination_port,discharge_date,'
+            + 'estimated_delivery_date,actual_delivery_date,carrier,tracking_reference,'
+            + 'container_number,bill_of_lading,estimated_cost,latest_carrier_milestone,'
+            + 'tracking_exception,wms_reference',
+            { archived_at: 'is.null' }),
+        fetchAll('shipment_costs',
+            'shipment_id,cost_type,amount,billed_cbm,billed_weight_kg',
+            { archived_at: 'is.null' }),
+        fetchTry('transfer_orders',
+            ['id,shipment_id,transfer_order_number', 'id,shipment_id,reference',
+             'id,shipment_id,name', 'id,shipment_id']),
+        fetchAll('transfer_order_lines', 'transfer_order_id,item_id,quantity', {}).catch(()=>[]),
+        fetchAll('items', 'id,variant_sku', {}).catch(()=>[]),
+        fetchAll('vw_product_sku_coverage',
+            'sku,master_carton_length_cm,master_carton_width_cm,master_carton_height_cm,'
+            + 'master_carton_weight_kg,master_carton_quantity', {}).catch(()=>[]),
+        fetchAll('warehouse_locations', 'id,warehouse_name,operator,country', {}).catch(()=>[]),
+    ]);
+
+    locations.forEach(l => {
+        WH[l.id] = l.warehouse_name || l.operator || l.country || l.id.slice(0,8);
+    });
+
+    skuRows.forEach(r => {
+        if (!r.sku) return;
+        SKU_CAT[r.sku.trim().toUpperCase()] = {
+            l:+r.master_carton_length_cm||0, w:+r.master_carton_width_cm||0,
+            h:+r.master_carton_height_cm||0, kg:+r.master_carton_weight_kg||0,
+            qpc:parseInt(r.master_carton_quantity)||0 };
+    });
+
+    const skuByItem = {};
+    items.forEach(i => { if (i.variant_sku) skuByItem[i.id] = i.variant_sku.trim().toUpperCase(); });
+
+    // Transfer orders -> shipment, keeping whatever reference field exists
+    const toByShip = {};
+    tOrders.forEach(t => {
+        const ref = t.transfer_order_number || t.reference || t.name || null;
+        (toByShip[t.shipment_id] = toByShip[t.shipment_id] || []).push({ id: t.id, ref });
+    });
+    const toIdToShip = {};
+    tOrders.forEach(t => { toIdToShip[t.id] = t.shipment_id; });
+
+    const linesByShip = {};
+    tLines.forEach(l => {
+        const sid = toIdToShip[l.transfer_order_id];
+        if (!sid) return;
+        (linesByShip[sid] = linesByShip[sid] || []).push({
+            sku: skuByItem[l.item_id], qty: +l.quantity || 0 });
+    });
+
+    const costsByShip = {};
+    costs.forEach(c => { (costsByShip[c.shipment_id] = costsByShip[c.shipment_id] || []).push(c); });
+
+    const DAY = 86400000;
+    ALL = shipments.map(s => {
+        const sc  = costsByShip[s.id] || [];
+        const sum = t => sc.filter(c=>c.cost_type===t).reduce((a,c)=>a+(+c.amount||0),0);
+        const freight   = sum('freight');
+        const totalCost = sc.reduce((a,c)=>a+(+c.amount||0),0);
+
+        // billed_* repeat the shipment figure on every cost line, so MAX not SUM
+        const billedCBM = Math.max(0, ...sc.map(c=>+c.billed_cbm||0));
+        const billedKG  = Math.max(0, ...sc.map(c=>+c.billed_weight_kg||0));
+
+        // Line items: SKU count, units, and volume derived from carton data
+        const lines = linesByShip[s.id] || [];
+        const skus  = new Set(lines.map(l=>l.sku).filter(Boolean));
+        let units = 0, okUnits = 0, calcCBM = 0, calcKG = 0;
+        lines.forEach(l => {
+            units += l.qty;
+            const p = l.sku ? SKU_CAT[l.sku] : null;
+            if (p && p.l>0 && p.w>0 && p.h>0 && p.kg>0 && p.qpc>0) {
+                const cartons = Math.ceil(l.qty / p.qpc);
+                calcCBM += (p.l*p.w*p.h/1e6) * cartons;
+                calcKG  += p.kg * cartons;
+                okUnits += l.qty;
+            }
+        });
+
+        // Prefer what the carrier billed, then the declared figure, then derived
+        let cbm = billedCBM, cbmSrc = 'billed';
+        if (!(cbm > 0)) { cbm = +s.total_cbm || 0; cbmSrc = 'decl'; }
+        if (!(cbm > 0)) { cbm = calcCBM;           cbmSrc = 'calc'; }
+        if (!(cbm > 0)) { cbmSrc = '—'; }
+        let weight = billedKG || +s.total_weight_kg || calcKG || 0;
+
+        const createdTs   = Date.parse(s.creation_date || s.created_at || '') || null;
+        const pickupTs    = Date.parse(s.actual_pickup_date || '') || null;
+        const departTs    = Date.parse(s.origin_port_departure_date || '') || null;
+        const etaTs       = Date.parse(s.estimated_delivery_date || '') || null;
+        const deliveredTs = Date.parse(s.actual_delivery_date || '') || null;
+        const startTs     = pickupTs || departTs || createdTs;
+        const transitDays = (deliveredTs && startTs) ? Math.round((deliveredTs-startTs)/DAY) : null;
+        const onTime      = (deliveredTs && etaTs) ? deliveredTs <= etaTs + DAY : null;
+
+        const density = cbm > 0 && units > 0 ? units/cbm : null;
+
+        return {
+            ...s,
+            originName: whName(s.origin_id), destName: whName(s.destination_id),
+            toNumbers: (toByShip[s.id]||[]).map(t=>t.ref).filter(Boolean).join(', ') || null,
+            skuCount: skus.size, units, cbm, cbmSrc, weight, calcCBM, calcKG,
+            freight, totalCost,
+            perCBM: cbm>0 && freight>0 ? freight/cbm : null,
+            perUnit: units>0 && freight>0 ? freight/units : null,
+            createdTs, pickupTs, departTs, etaTs, deliveredTs, transitDays, onTime,
+            coverage: units>0 ? okUnits/units : 0,
+            density,
+            // flag implausible density so a bad CBM is visible rather than silent
+            densityFlag: density != null && (density < 3 || density > 3000),
+        };
+    });
+
+    // Populate the filter dropdowns from the data that actually exists
+    const fill = (id, vals, labelFn) => {
+        const sel = document.getElementById(id);
+        vals.forEach(v => {
+            const o = document.createElement('option');
+            o.value = v; o.textContent = labelFn ? labelFn(v) : v;
+            sel.appendChild(o);
+        });
+    };
+    const originIds = [...new Set(ALL.map(s=>s.origin_id).filter(Boolean))]
+        .sort((a,b)=>whName(a).localeCompare(whName(b)));
+    const destIds = [...new Set(ALL.map(s=>s.destination_id).filter(Boolean))]
+        .sort((a,b)=>whName(a).localeCompare(whName(b)));
+    fill('f-origin', originIds, whName);
+    fill('f-dest',   destIds,   whName);
+    fill('f-mode',   [...new Set(ALL.map(s=>s.mode).filter(Boolean))].sort());
+    fill('f-status', [...new Set(ALL.map(s=>s.status).filter(Boolean))].sort());
+
+    const lanes = new Set(ALL.map(s=>`${s.origin_id}>${s.destination_id}`));
+    document.getElementById('hdr-sub').textContent =
+        `${ALL.length} shipments · ${lanes.size} lanes · ${originIds.length} origins · ${destIds.length} destinations`;
+
+    const now = new Date().toLocaleString('en-ZA',{ timeZone:'Africa/Johannesburg',
+        day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    document.getElementById('last-updated').innerHTML = `Updated<br><strong>${now} SAST</strong>`;
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    apply();
+}
+
+init().catch(err => {
+    document.getElementById('loading').style.display = 'none';
+    const el = document.getElementById('error-box');
+    el.style.display = 'block';
+    el.textContent = `Could not load data: ${err.message}`;
+    console.error(err);
+});
+</script>
+</body>
+</html>

@@ -6,13 +6,41 @@
     }
   },
   "rewrites": [
-    { "source": "/api/supabase/:path*",       "destination": "/api/proxy?supapath=:path*" },
-    { "source": "/",                          "destination": "/api/page?p=index" },
-    { "source": "/index.html",                "destination": "/api/page?p=index" },
-    { "source": "/product-catalog.html",      "destination": "/api/page?p=product-catalog" },
-    { "source": "/bundle-mapping.html",       "destination": "/api/page?p=bundle-mapping" },
-    { "source": "/transportation-costs.html", "destination": "/api/page?p=transportation-costs" },
-    { "source": "/shipping-estimator.html",   "destination": "/api/page?p=shipping-estimator" },
-    { "source": "/validation.html",           "destination": "/api/page?p=validation" }
+    {
+      "source": "/api/supabase/:path*",
+      "destination": "/api/proxy?supapath=:path*"
+    },
+    {
+      "source": "/",
+      "destination": "/api/page?p=index"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/api/page?p=index"
+    },
+    {
+      "source": "/outbound-shipments.html",
+      "destination": "/api/page?p=outbound-shipments"
+    },
+    {
+      "source": "/product-catalog.html",
+      "destination": "/api/page?p=product-catalog"
+    },
+    {
+      "source": "/bundle-mapping.html",
+      "destination": "/api/page?p=bundle-mapping"
+    },
+    {
+      "source": "/transportation-costs.html",
+      "destination": "/api/page?p=transportation-costs"
+    },
+    {
+      "source": "/shipping-estimator.html",
+      "destination": "/api/page?p=shipping-estimator"
+    },
+    {
+      "source": "/validation.html",
+      "destination": "/api/page?p=validation"
+    }
   ]
 }
