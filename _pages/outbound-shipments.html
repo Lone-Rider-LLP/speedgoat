@@ -348,23 +348,30 @@ function render() {
 // owns that stage rather than lumped into one "it took 9 days" figure.
 function renderStages() {
     const stages = [
-        ['Created → confirmed',        'toConfirmDays', 'your team booking it'],
-        ['Confirmed → departed',       'awaitDepart',   'waiting on the carrier to sail/fly'],
-        ['Departed → arrived at port', 'atPortDays',    'in transit'],
-        ['Arrived → delivered',        'lastLegDays',   'customs and final leg'],
+        ['Created → booked',            'toBookedDays',    'your team raising it'],
+        ['Booked → confirmed',          'bookedToConfirm', 'forwarder confirming space'],
+        ['Confirmed → departed',        'awaitDepart',     'waiting to sail or fly'],
+        ['Departed → arrived at port',  'atPortDays',      'in transit'],
+        ['Arrived → discharged',        'dischargeDays',   'port handling'],
+        ['Discharged → delivered',      'lastLegDays',     'customs and final leg'],
     ];
     // Only shipments with real status history contribute — a stage cannot be
     // measured from a fallback date column without inventing a duration.
-    const pool = VIEW.filter(s => s.hasHistory);
+    const pool  = VIEW.filter(s => s.hasHistory);
+    const noHx  = VIEW.length - pool.length;
+    const ooo   = VIEW.reduce((t,s) => t + (s.outOfOrder||0), 0);
     const sub = document.getElementById('stage-sub');
     if (sub) sub.innerHTML =
-        `From the shipment status history, so it reflects what actually happened. `
-      + `Stages do not overlap, so they sum to the end-to-end total. `
-      + `<strong>${pool.length} of ${VIEW.length}</strong> shipments in view have status history; `
-      + `the rest are excluded rather than estimated from date fields.`;
+        `Measured from status transitions, for the <strong>${pool.length} of ${VIEW.length}</strong> `
+      + `shipments in view with a full history. `
+      + (noHx ? `${noHx} have no usable history and are excluded rather than estimated from date fields. ` : '')
+      + (ooo ? `<span style="color:var(--amber)">${ooo} transitions were recorded out of order and are excluded.</span> ` : '')
+      + `Same-day stages are shown as 0, which is genuine where two statuses are logged together.`;
+
     const rows = stages.map(([label, key, who]) => {
-        const vals = pool.map(s => s[key]).filter(v => v != null);
-        return { label, who, n: vals.length, med: median(vals),
+        const vals  = pool.map(s => s[key]).filter(v => v != null);
+        const zeros = vals.filter(v => v === 0).length;
+        return { label, who, n: vals.length, zeros, med: median(vals),
                  p90: vals.length ? [...vals].sort((a,b)=>a-b)[Math.floor(vals.length*0.9)] : null,
                  max: vals.length ? Math.max(...vals) : null };
     });
@@ -375,14 +382,18 @@ function renderStages() {
     document.getElementById('stage-tbl').innerHTML = `
         <thead><tr>
             <th>Stage</th><th>Owner</th><th class="r">Shipments</th>
+            <th class="r">Same day</th>
             <th class="r">Median</th><th class="r">90th pct</th><th class="r">Worst</th>
-            <th style="width:180px">Share of time</th>
+            <th style="width:170px">Share of time</th>
         </tr></thead>
         <tbody>${rows.map(r => `
             <tr>
                 <td style="font-weight:600">${r.label}</td>
                 <td class="muted" style="font-size:11.5px">${r.who}</td>
                 <td class="r">${r.n}</td>
+                <td class="r muted" style="font-size:11.5px"
+                    title="Stages logged on the same day — a median of 0 is expected when most are">
+                    ${r.n?Math.round(100*r.zeros/r.n)+'%':'—'}</td>
                 <td class="r ${r.med==null?'muted':''}" style="font-weight:600">${r.med!=null?f1(r.med)+' d':'—'}</td>
                 <td class="r muted">${r.p90!=null?f0(r.p90)+' d':'—'}</td>
                 <td class="r muted">${r.max!=null?f0(r.max)+' d':'—'}</td>
@@ -393,6 +404,7 @@ function renderStages() {
                 <td style="font-weight:700">End to end</td>
                 <td class="muted" style="font-size:11.5px">created → delivered</td>
                 <td class="r">${totals.length}</td>
+                <td class="r muted"></td>
                 <td class="r" style="font-weight:700">${medTotal!=null?f1(medTotal)+' d':'—'}</td>
                 <td class="r muted" colspan="3"></td>
             </tr>
@@ -863,12 +875,14 @@ async function init() {
         const deliveredTs = Date.parse(s.actual_delivery_date || '') || null;
         // Status-history timestamps, which reflect what actually happened rather
         // than the date fields, several of which are unpopulated.
-        const st          = stageTs[s.id] || {};
-        const stCreated   = st.created || null;
-        const confirmedTs = st.confirmed || null;
-        const stDeparted  = st.departed || null;
-        const arrivedTs   = st.arrived_at_port || null;
-        const stDelivered = st.delivered || null;
+        const st           = stageTs[s.id] || {};
+        const stCreated    = st.created || null;
+        const bookedTs     = st.booked || null;
+        const confirmedTs  = st.confirmed || null;
+        const stDeparted   = st.departed || null;
+        const arrivedTs    = st.arrived_at_port || null;
+        const dischargedTs = st.discharged || null;
+        const stDelivered  = st.delivered || null;
 
         // Prefer status history, fall back to the date columns
         const createdOn   = stCreated || createdTs;
@@ -881,15 +895,25 @@ async function init() {
         // carrier pickup, which can predate confirmation, and the clamp below
         // turned that negative gap into 0.
         const gap = (to, from) => (to && from) ? Math.round((to - from)/DAY) : null;
+        // A negative gap means the statuses were recorded out of order, which is a
+        // data-quality problem, not a duration. Return null so it is excluded from
+        // medians rather than clamped to 0 — clamping is what produced the false
+        // zeros. Counted separately so the problem stays visible.
+        let outOfOrder = 0;
         const stageGap = (to, from) => {
             const d = gap(to, from);
-            return d == null ? null : Math.max(0, d);
+            if (d == null) return null;
+            if (d < 0) { outOfOrder++; return null; }
+            return d;
         };
 
-        const toConfirmDays = stageGap(confirmedTs, stCreated);
-        const awaitDepart   = stageGap(stDeparted,  confirmedTs);
-        const atPortDays    = stageGap(arrivedTs,   stDeparted);
-        const lastLegDays   = stageGap(stDelivered, arrivedTs);
+        const toBookedDays    = stageGap(bookedTs,     stCreated);
+        const bookedToConfirm = stageGap(confirmedTs,  bookedTs);
+        const toConfirmDays   = stageGap(confirmedTs,  stCreated);
+        const awaitDepart     = stageGap(stDeparted,   confirmedTs);
+        const atPortDays      = stageGap(arrivedTs,    stDeparted);
+        const dischargeDays   = stageGap(dischargedTs, arrivedTs);
+        const lastLegDays     = stageGap(stDelivered,  dischargedTs || arrivedTs);
 
         // These two are reported per shipment and may legitimately use the
         // fallback dates, since a missing status is common on older records.
@@ -910,8 +934,13 @@ async function init() {
             perUnit: units>0 && freight>0 ? freight/units : null,
             createdTs: createdOn, pickupTs, etaTs,
             confirmedTs, departedTs, arrivedTs, deliveredTs: deliveredOn,
-            toConfirmDays, awaitDepart, processDays, atPortDays, lastLegDays,
-            transitDays, totalDays, onTime,
+            bookedTs, dischargedTs,
+            toBookedDays, bookedToConfirm, toConfirmDays, awaitDepart,
+            processDays, atPortDays, dischargeDays, lastLegDays,
+            transitDays, totalDays, onTime, outOfOrder,
+            // A real workflow record starts with a 'created' marker. The backfilled
+            // migration batch has none and logs confirmed == departed exactly, so it
+            // would otherwise contribute a run of meaningless zeros.
             hasHistory: !!stCreated,
             coverage: units>0 ? okUnits/units : 0,
             density,
