@@ -100,6 +100,13 @@
         .bar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
         .g { color: var(--green); } .a { color: var(--amber); } .r_ { color: var(--red); }
         .muted { color: var(--muted); }
+        /* Deep link out to the shipment record in Forge */
+        a.forge { color: var(--text); text-decoration: none; font-weight: 600;
+                  border-bottom: 1px dotted var(--border); transition: color .15s, border-color .15s; }
+        a.forge:hover { color: var(--accent); border-bottom-color: var(--accent); }
+        a.forge::after { content: '↗'; font-size: 9px; margin-left: 3px;
+                         color: var(--muted); vertical-align: super; }
+        a.forge:hover::after { color: var(--accent); }
         .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px;
                   color: var(--muted); margin-top: 10px; }
     </style>
@@ -212,6 +219,7 @@
             <div class="card-sub">Click any heading to sort. <span id="row-count"></span></div>
             <div class="tbl-wrap"><table class="d" id="ship-tbl"></table></div>
             <div class="legend">
+                <span>Shipment numbers link through to Forge ↗</span>
                 <span>CBM source: <strong>billed</strong> = from carrier invoice · <strong>decl</strong> = shipment record · <strong>calc</strong> = from carton data</span>
                 <span>Data = share of units with complete carton dimensions</span>
             </div>
@@ -226,6 +234,7 @@ const URL_BASE = `${window.location.origin}/api/supabase`;
 const ANON_KEY = '';
 const HEADERS  = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
 
+const FORGE_BASE = 'https://forge.lonerider.ai';
 const MODE_COLOR = { air:'#60a5fa', sea:'#34d399', express:'#f97316',
                      rail:'#a78bfa', road:'#fbbf24' };
 const STATUS_COLOR = { delivered:'#34d399', 'in transit':'#60a5fa', pending:'#fbbf24',
@@ -505,7 +514,10 @@ function renderTable() {
             const mc = MODE_COLOR[s.mode] || '#7c87a0';
             return `<tr>
                 <td class="muted" style="font-size:11.5px">${dtm(s.createdTs)}</td>
-                <td class="mono" style="font-weight:600">${s.shipment_number || s.id.slice(0,8)}</td>
+                <td class="mono">
+                    <a class="forge" href="${FORGE_BASE}/shipments/${s.id}" target="_blank" rel="noopener"
+                       title="Open ${s.shipment_number || 'this shipment'} in Forge">${s.shipment_number || s.id.slice(0,8)}</a>
+                </td>
                 <td class="mono muted" style="font-size:11px">${s.toNumbers || '—'}</td>
                 <td class="lane">${s.originName}</td>
                 <td class="lane">${s.destName}</td>
@@ -545,7 +557,7 @@ function exportCSV() {
                   'SKUs','Units','CBM','CBM source','Weight kg','Units per CBM','Freight USD',
                   'Total cost USD','USD per CBM','USD per unit','Status','Pickup','Port departure',
                   'Est delivery','Actual delivery','Transit days','On time','Carton data %',
-                  'Carrier','Container','BOL','Tracking'];
+                  'Carrier','Container','BOL','Tracking','Forge link'];
     const esc = v => {
         if (v == null) return '';
         const s = String(v);
@@ -564,6 +576,7 @@ function exportCSV() {
         s.transitDays, s.onTime == null ? '' : s.onTime ? 'yes' : 'no',
         s.coverage != null ? (s.coverage*100).toFixed(0) : '',
         s.carrier, s.container_number, s.bill_of_lading, s.tracking_reference,
+        `${FORGE_BASE}/shipments/${s.id}`,
     ].map(esc).join(','));
     const csv = [cols.join(','), ...rows].join('\n');
     const a = document.createElement('a');
