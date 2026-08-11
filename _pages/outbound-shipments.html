@@ -217,8 +217,8 @@
         <div class="section-label">Where the time goes</div>
         <div class="card">
             <div class="card-title">Median days per stage</div>
-            <div class="card-sub">From the shipment status history, so it reflects what actually happened.
-                Stages do not overlap, so they sum to the end-to-end total.</div>
+            <div class="card-sub" id="stage-sub">From the shipment status history, so it reflects what
+                actually happened. Stages do not overlap, so they sum to the end-to-end total.</div>
             <div class="tbl-wrap"><table class="d" id="stage-tbl"></table></div>
         </div>
 
@@ -353,19 +353,22 @@ function renderStages() {
         ['Departed → arrived at port', 'atPortDays',    'in transit'],
         ['Arrived → delivered',        'lastLegDays',   'customs and final leg'],
     ];
-    // derived: confirmed -> departed
-    VIEW.forEach(s => {
-        s.awaitDepart = (s.departedTs && s.confirmedTs)
-            ? Math.max(0, Math.round((s.departedTs - s.confirmedTs)/86400000)) : null;
-    });
-
+    // Only shipments with real status history contribute — a stage cannot be
+    // measured from a fallback date column without inventing a duration.
+    const pool = VIEW.filter(s => s.hasHistory);
+    const sub = document.getElementById('stage-sub');
+    if (sub) sub.innerHTML =
+        `From the shipment status history, so it reflects what actually happened. `
+      + `Stages do not overlap, so they sum to the end-to-end total. `
+      + `<strong>${pool.length} of ${VIEW.length}</strong> shipments in view have status history; `
+      + `the rest are excluded rather than estimated from date fields.`;
     const rows = stages.map(([label, key, who]) => {
-        const vals = VIEW.map(s => s[key]).filter(v => v != null);
+        const vals = pool.map(s => s[key]).filter(v => v != null);
         return { label, who, n: vals.length, med: median(vals),
                  p90: vals.length ? [...vals].sort((a,b)=>a-b)[Math.floor(vals.length*0.9)] : null,
                  max: vals.length ? Math.max(...vals) : null };
     });
-    const totals = VIEW.map(s=>s.totalDays).filter(v=>v!=null);
+    const totals = pool.map(s=>s.totalDays).filter(v=>v!=null);
     const medTotal = median(totals);
     const worst = Math.max(1, ...rows.map(r => r.med ?? 0));
 
@@ -872,19 +875,27 @@ async function init() {
         const departedTs  = stDeparted || pickupTs || departTs || null;
         const deliveredOn = stDelivered || deliveredTs;
 
-        // Legs, kept non-overlapping
-        const toConfirmDays = (confirmedTs && createdOn)
-            ? Math.max(0, Math.round((confirmedTs - createdOn)/DAY)) : null;
-        const processDays   = (departedTs && createdOn)
-            ? Math.max(0, Math.round((departedTs - createdOn)/DAY)) : null;
-        const transitDays   = (deliveredOn && departedTs)
-            ? Math.round((deliveredOn - departedTs)/DAY) : null;
-        const atPortDays    = (arrivedTs && departedTs)
-            ? Math.max(0, Math.round((arrivedTs - departedTs)/DAY)) : null;
-        const lastLegDays   = (deliveredOn && arrivedTs)
-            ? Math.max(0, Math.round((deliveredOn - arrivedTs)/DAY)) : null;
-        const totalDays     = (deliveredOn && createdOn)
-            ? Math.round((deliveredOn - createdOn)/DAY) : null;
+        // Stage durations compare two status-history timestamps only. Mixing a
+        // history timestamp with a fallback date column produced false zeros:
+        // where a shipment had no 'departed' status, departedTs fell back to
+        // carrier pickup, which can predate confirmation, and the clamp below
+        // turned that negative gap into 0.
+        const gap = (to, from) => (to && from) ? Math.round((to - from)/DAY) : null;
+        const stageGap = (to, from) => {
+            const d = gap(to, from);
+            return d == null ? null : Math.max(0, d);
+        };
+
+        const toConfirmDays = stageGap(confirmedTs, stCreated);
+        const awaitDepart   = stageGap(stDeparted,  confirmedTs);
+        const atPortDays    = stageGap(arrivedTs,   stDeparted);
+        const lastLegDays   = stageGap(stDelivered, arrivedTs);
+
+        // These two are reported per shipment and may legitimately use the
+        // fallback dates, since a missing status is common on older records.
+        const processDays   = stageGap(departedTs, createdOn);
+        const transitDays   = gap(deliveredOn, departedTs);
+        const totalDays     = gap(deliveredOn, createdOn);
         const onTime        = (deliveredOn && etaTs) ? deliveredOn <= etaTs + DAY : null;
 
         const density = cbm > 0 && units > 0 ? units/cbm : null;
@@ -899,7 +910,7 @@ async function init() {
             perUnit: units>0 && freight>0 ? freight/units : null,
             createdTs: createdOn, pickupTs, etaTs,
             confirmedTs, departedTs, arrivedTs, deliveredTs: deliveredOn,
-            toConfirmDays, processDays, atPortDays, lastLegDays,
+            toConfirmDays, awaitDepart, processDays, atPortDays, lastLegDays,
             transitDays, totalDays, onTime,
             hasHistory: !!stCreated,
             coverage: units>0 ? okUnits/units : 0,
