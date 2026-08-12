@@ -141,6 +141,12 @@
         a.forge:hover::after { color: var(--accent); }
         .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px;
                   color: var(--muted); margin-top: 10px; }
+        /* Inline actions in the data-quality strip */
+        .dq-link { background: none; border: none; padding: 0; cursor: pointer;
+                   font-family: inherit; font-size: 11.5px; color: var(--amber);
+                   text-decoration: underline; text-decoration-style: dotted;
+                   text-underline-offset: 2px; }
+        .dq-link:hover { color: var(--text); }
     </style>
 </head>
 <body>
@@ -309,7 +315,11 @@ const STATUS_COLOR = { delivered:'#34d399', 'in transit':'#60a5fa', pending:'#fb
                        cancelled:'#ef4444', draft:'#7c87a0' };
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let ALL = [], VIEW = [], WH = {}, SKU_CAT = {};
+// BASE = user filters applied. VIEW = BASE plus any data-quality focus.
+// Kept separate so the data-quality strip always counts the full filtered set
+// rather than counting only whichever bucket is currently focused.
+let ALL = [], BASE = [], VIEW = [], WH = {}, SKU_CAT = {};
+let DQ_FOCUS = null;
 let sortKey = 'createdTs', sortDir = -1;
 let chMonth = null, chDest = null, chMode = null;
 
@@ -436,7 +446,7 @@ function apply() {
     const q      = document.getElementById('f-search').value.trim().toLowerCase();
     const cutoff = days ? Date.now() - days*86400000 : null;
 
-    VIEW = ALL.filter(s => {
+    BASE = ALL.filter(s => {
         if (cutoff && (!s.createdTs || s.createdTs < cutoff)) return false;
         // Empty set = no constraint
         for (const [key, m] of Object.entries(MS)) {
@@ -450,7 +460,31 @@ function apply() {
         }
         return true;
     });
+    const dq = DQ_CHECKS.find(c => c.id === DQ_FOCUS);
+    VIEW = dq ? BASE.filter(dq.fn) : BASE;
     render();
+}
+
+// ── Data-quality buckets ──────────────────────────────────────────────────────
+const DQ_CHECKS = [
+    { id:'origin',   label:'no origin set',            fn: s => !s.origin_id },
+    { id:'dest',     label:'no destination set',       fn: s => !s.destination_id },
+    { id:'cbm',      label:'no CBM from any source',   fn: s => !(s.cbm > 0) },
+    { id:'freight',  label:'no freight cost recorded', fn: s => !(s.freight > 0)
+                            && !['draft','cancelled'].includes((s.status||'').toLowerCase()) },
+    { id:'to',       label:'no transfer order linked', fn: s => !s.toNumbers },
+];
+
+function dqFocus(id) {
+    DQ_FOCUS = (DQ_FOCUS === id) ? null : id;
+    apply();
+    if (DQ_FOCUS) document.getElementById('ship-tbl')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function dqExport(id) {
+    const c = DQ_CHECKS.find(x => x.id === id);
+    if (!c) return;
+    exportRows(BASE.filter(c.fn), `missing-${id}`);
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -605,29 +639,40 @@ function renderStages() {
 // Surface fixable gaps so they can be tracked down to zero, rather than
 // quietly distorting the lane and cost figures.
 function renderDQ() {
-    const checks = [
-        ['no origin set',      s => !s.origin_id],
-        ['no destination set', s => !s.destination_id],
-        ['no CBM from any source', s => !(s.cbm > 0)],
-        ['no freight cost recorded', s => !(s.freight > 0)
-              && (s.status||'').toLowerCase() !== 'draft'
-              && (s.status||'').toLowerCase() !== 'cancelled'],
-        ['no transfer order linked', s => !s.toNumbers],
-    ];
-    const parts = checks.map(([label, fn]) => {
-        const hits = VIEW.filter(fn);
+    // Counted against BASE, so the numbers stay stable while a bucket is focused
+    const parts = DQ_CHECKS.map(c => {
+        const hits = BASE.filter(c.fn);
         if (!hits.length) return null;
+        const active = DQ_FOCUS === c.id;
         const eg = hits.slice(0,4).map(s =>
             `<a class="forge" href="${FORGE_BASE}/shipments/${s.id}" target="_blank" rel="noopener"
                 style="font-weight:500">${s.shipment_number || s.id.slice(0,8)}</a>`).join(', ');
-        return `<div><strong>${hits.length}</strong> ${label}
-                <span class="muted">· ${eg}${hits.length>4?` +${hits.length-4} more`:''}</span></div>`;
+        const more = hits.length > 4
+            ? `<button type="button" class="dq-link" onclick="dqFocus('${c.id}')"
+                       title="Show only these ${hits.length} shipments in the table below">+${hits.length-4} more</button>`
+            : '';
+        return `<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap
+                    ${active?';background:rgba(251,191,36,.12);border-radius:5px;padding:2px 6px;margin:-2px -6px':''}">
+            <span><strong>${hits.length}</strong> ${c.label}</span>
+            <span class="muted" style="font-size:12px">· ${eg} ${more}</span>
+            <span style="margin-left:auto;display:flex;gap:9px;white-space:nowrap">
+                <button type="button" class="dq-link" onclick="dqFocus('${c.id}')">
+                    ${active ? 'clear filter' : 'filter table'}</button>
+                <button type="button" class="dq-link" onclick="dqExport('${c.id}')">CSV</button>
+            </span>
+        </div>`;
     }).filter(Boolean);
 
     const box = document.getElementById('dq');
     if (!parts.length) { box.style.display = 'none'; return; }
     box.style.display = 'block';
-    document.getElementById('dq-body').innerHTML = parts.join('');
+    const focused = DQ_CHECKS.find(c => c.id === DQ_FOCUS);
+    document.getElementById('dq-body').innerHTML = parts.join('')
+        + (focused ? `<div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(251,191,36,.25);
+                        font-size:12px;color:var(--amber)">
+                Table below is filtered to <strong>${focused.label}</strong> —
+                <button type="button" class="dq-link" onclick="dqFocus('${focused.id}')">show all again</button>
+            </div>` : '');
 }
 
 function kpiCard(label, value, sub, tone) {
@@ -934,20 +979,22 @@ const CSV_FIELDS = [
 ];
 const d10 = ts => ts ? new Date(ts).toISOString().slice(0,10) : '';
 
-function exportCSV() {
+function exportRows(rowsIn, name) {
     const esc = v => {
         if (v == null) return '';
         const s = String(v);
         return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
     };
-    const rows = VIEW.map(s => CSV_FIELDS.map(([,fn]) => esc(fn(s))).join(','));
+    const rows = rowsIn.map(s => CSV_FIELDS.map(([,fn]) => esc(fn(s))).join(','));
     const csv = [CSV_FIELDS.map(([h]) => h).join(','), ...rows].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
-    a.download = `outbound-shipments-${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `${name}-${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
 }
+
+function exportCSV() { exportRows(VIEW, 'outbound-shipments'); }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
