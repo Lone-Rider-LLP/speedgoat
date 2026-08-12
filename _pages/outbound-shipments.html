@@ -70,6 +70,38 @@
                transition: border-color .15s, color .15s; white-space: nowrap; }
         .btn:hover { border-color: var(--accent); color: var(--accent); }
 
+        /* ── Multi-select ── */
+        .ms { position: relative; }
+        .ms-btn { width: 100%; text-align: left; background: var(--surface2);
+                  border: 1px solid var(--border); color: var(--text); border-radius: 7px;
+                  padding: 9px 28px 9px 12px; font-size: 13px; cursor: pointer;
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                  transition: border-color .15s; font-family: inherit; }
+        .ms-btn:hover, .ms.open .ms-btn { border-color: var(--accent); }
+        .ms-btn::after { content: '▾'; position: absolute; right: 10px; top: 50%;
+                         transform: translateY(-50%); color: var(--muted); font-size: 11px;
+                         pointer-events: none; }
+        .ms-count { display: inline-block; background: var(--accent); color: #0c0e16;
+                    font-size: 10px; font-weight: 700; border-radius: 9px;
+                    padding: 1px 6px; margin-left: 5px; }
+        .ms-panel { display: none; position: absolute; top: calc(100% + 5px); left: 0;
+                    min-width: 100%; max-width: 320px; background: var(--surface2);
+                    border: 1px solid var(--border-strong, var(--accent)); border-radius: 8px;
+                    box-shadow: 0 10px 28px rgba(0,0,0,.55); z-index: 60;
+                    max-height: 280px; overflow-y: auto; padding: 5px; }
+        .ms.open .ms-panel { display: block; }
+        .ms-tools { display: flex; gap: 10px; padding: 5px 8px 7px;
+                    border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+        .ms-tools button { background: none; border: none; color: var(--muted); cursor: pointer;
+                           font-size: 11px; padding: 0; font-family: inherit; }
+        .ms-tools button:hover { color: var(--accent); }
+        .ms-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+                  border-radius: 5px; cursor: pointer; font-size: 12.5px; white-space: nowrap; }
+        .ms-opt:hover { background: rgba(249,115,22,.12); }
+        .ms-opt input { width: 13px; height: 13px; accent-color: var(--accent);
+                        margin: 0; cursor: pointer; flex-shrink: 0; }
+        .ms-opt span.n { color: var(--muted); font-size: 11px; margin-left: auto; padding-left: 10px; }
+
         /* ── KPI tiles ── */
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px,1fr)); gap: 13px; }
         .kpi-card { background: var(--surface); border: 1px solid var(--border);
@@ -153,21 +185,21 @@
                         <option value="0">All time</option>
                     </select>
                 </div>
-                <div class="field-group" style="flex:0 0 180px">
+                <div class="field-group" style="flex:0 0 185px">
                     <label>Origin</label>
-                    <select id="f-origin" onchange="apply()"><option value="">All origins</option></select>
+                    <div class="ms" id="ms-origin"></div>
                 </div>
-                <div class="field-group" style="flex:0 0 180px">
+                <div class="field-group" style="flex:0 0 185px">
                     <label>Destination</label>
-                    <select id="f-dest" onchange="apply()"><option value="">All destinations</option></select>
-                </div>
-                <div class="field-group" style="flex:0 0 130px">
-                    <label>Mode</label>
-                    <select id="f-mode" onchange="apply()"><option value="">All modes</option></select>
+                    <div class="ms" id="ms-dest"></div>
                 </div>
                 <div class="field-group" style="flex:0 0 140px">
+                    <label>Mode</label>
+                    <div class="ms" id="ms-mode"></div>
+                </div>
+                <div class="field-group" style="flex:0 0 150px">
                     <label>Status</label>
-                    <select id="f-status" onchange="apply()"><option value="">All statuses</option></select>
+                    <div class="ms" id="ms-status"></div>
                 </div>
                 <div class="field-group" style="flex:1;min-width:170px">
                     <label>Search</label>
@@ -307,22 +339,85 @@ async function fetchTry(table, selects, extra = {}) {
     return [];
 }
 
+// ── Multi-select filters ──────────────────────────────────────────────────────
+// An empty selection means "all", which keeps the default state obvious and
+// avoids a filter that can be accidentally emptied into showing nothing.
+const MS = {
+    origin: { sel:new Set(), opts:[], noun:'origins',      field:s=>s.origin_id },
+    dest:   { sel:new Set(), opts:[], noun:'destinations', field:s=>s.destination_id },
+    mode:   { sel:new Set(), opts:[], noun:'modes',        field:s=>s.mode },
+    status: { sel:new Set(), opts:[], noun:'statuses',     field:s=>s.status },
+};
+
+function msBuild(key) {
+    const m = MS[key];
+    const el = document.getElementById(`ms-${key}`);
+    el.innerHTML = `
+        <button type="button" class="ms-btn" id="ms-${key}-btn" onclick="msToggle('${key}')"></button>
+        <div class="ms-panel">
+            <div class="ms-tools">
+                <button type="button" onclick="msSetAll('${key}',true)">Select all</button>
+                <button type="button" onclick="msSetAll('${key}',false)">Clear</button>
+            </div>
+            ${m.opts.map(o => `
+                <label class="ms-opt">
+                    <input type="checkbox" value="${o.value}"
+                           onchange="msPick('${key}', this.value, this.checked)">
+                    <span>${o.label}</span><span class="n">${o.count}</span>
+                </label>`).join('')}
+        </div>`;
+    msLabel(key);
+}
+
+function msLabel(key) {
+    const m = MS[key];
+    const btn = document.getElementById(`ms-${key}-btn`);
+    if (!btn) return;
+    if (m.sel.size === 0)      btn.innerHTML = `All ${m.noun}`;
+    else if (m.sel.size === 1) {
+        const o = m.opts.find(o => o.value === [...m.sel][0]);
+        btn.innerHTML = o ? o.label : '1 selected';
+    } else btn.innerHTML = `${m.noun.replace(/e?s$/,'')}s <span class="ms-count">${m.sel.size}</span>`;
+}
+
+function msToggle(key) {
+    const el = document.getElementById(`ms-${key}`);
+    const wasOpen = el.classList.contains('open');
+    document.querySelectorAll('.ms.open').forEach(o => o.classList.remove('open'));
+    if (!wasOpen) el.classList.add('open');
+}
+
+function msPick(key, value, checked) {
+    checked ? MS[key].sel.add(value) : MS[key].sel.delete(value);
+    msLabel(key); apply();
+}
+
+function msSetAll(key, on) {
+    const m = MS[key];
+    m.sel = on ? new Set(m.opts.map(o => o.value)) : new Set();
+    document.querySelectorAll(`#ms-${key} .ms-opt input`)
+            .forEach(cb => { cb.checked = on; });
+    msLabel(key); apply();
+}
+
+// Close any open panel when clicking elsewhere
+document.addEventListener('click', e => {
+    if (!e.target.closest('.ms')) document.querySelectorAll('.ms.open')
+        .forEach(o => o.classList.remove('open'));
+});
+
 // ── Filtering ─────────────────────────────────────────────────────────────────
 function apply() {
     const days   = parseInt(document.getElementById('f-range').value) || 0;
-    const origin = document.getElementById('f-origin').value;
-    const dest   = document.getElementById('f-dest').value;
-    const mode   = document.getElementById('f-mode').value;
-    const status = document.getElementById('f-status').value;
     const q      = document.getElementById('f-search').value.trim().toLowerCase();
     const cutoff = days ? Date.now() - days*86400000 : null;
 
     VIEW = ALL.filter(s => {
         if (cutoff && (!s.createdTs || s.createdTs < cutoff)) return false;
-        if (origin && s.origin_id      !== origin) return false;
-        if (dest   && s.destination_id !== dest)   return false;
-        if (mode   && s.mode           !== mode)   return false;
-        if (status && (s.status||'')   !== status) return false;
+        // Empty set = no constraint
+        for (const [key, m] of Object.entries(MS)) {
+            if (m.sel.size && !m.sel.has(m.field(s) || '')) return false;
+        }
         if (q) {
             const hay = [s.shipment_number, s.carrier, s.container_number,
                          s.bill_of_lading, s.tracking_reference, s.toNumbers]
@@ -949,27 +1044,28 @@ async function init() {
         };
     });
 
-    // Populate the filter dropdowns from the data that actually exists
-    const fill = (id, vals, labelFn) => {
-        const sel = document.getElementById(id);
-        vals.forEach(v => {
-            const o = document.createElement('option');
-            o.value = v; o.textContent = labelFn ? labelFn(v) : v;
-            sel.appendChild(o);
-        });
+    // Build the multi-select options from the data that actually exists, each with
+    // a shipment count so it is obvious which values matter.
+    const buildOpts = (getVal, labelFn) => {
+        const counts = {};
+        ALL.forEach(s => { const v = getVal(s) || ''; counts[v] = (counts[v]||0) + 1; });
+        return Object.entries(counts)
+            .map(([value, count]) => ({ value, count,
+                 label: value === '' ? NOT_SET : (labelFn ? labelFn(value) : value) }))
+            .sort((a,b) => a.label.localeCompare(b.label));
     };
-    const originIds = [...new Set(ALL.map(s=>s.origin_id).filter(Boolean))]
-        .sort((a,b)=>whName(a).localeCompare(whName(b)));
-    const destIds = [...new Set(ALL.map(s=>s.destination_id).filter(Boolean))]
-        .sort((a,b)=>whName(a).localeCompare(whName(b)));
-    fill('f-origin', originIds, whName);
-    fill('f-dest',   destIds,   whName);
-    fill('f-mode',   [...new Set(ALL.map(s=>s.mode).filter(Boolean))].sort());
-    fill('f-status', [...new Set(ALL.map(s=>s.status).filter(Boolean))].sort());
+    MS.origin.opts = buildOpts(s => s.origin_id, whName);
+    MS.dest.opts   = buildOpts(s => s.destination_id, whName);
+    MS.mode.opts   = buildOpts(s => s.mode);
+    MS.status.opts = buildOpts(s => s.status);
+    Object.keys(MS).forEach(msBuild);
+
+    const originIds = MS.origin.opts.filter(o => o.value).length;
+    const destIds   = MS.dest.opts.filter(o => o.value).length;
 
     const lanes = new Set(ALL.map(s=>`${s.origin_id}>${s.destination_id}`));
     document.getElementById('hdr-sub').textContent =
-        `${ALL.length} shipments · ${lanes.size} lanes · ${originIds.length} origins · ${destIds.length} destinations`;
+        `${ALL.length} shipments · ${lanes.size} lanes · ${originIds} origins · ${destIds} destinations`;
 
     const now = new Date().toLocaleString('en-ZA',{ timeZone:'Africa/Johannesburg',
         day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
