@@ -11,11 +11,66 @@
             --border: #2a2f45; --text: #e2e8f0; --muted: #7c87a0;
             --accent: #f97316; --green: #34d399; --blue: #60a5fa;
             --red: #ef4444; --amber: #fbbf24; --purple: #a78bfa;
+            --sb-w: 224px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
         body { background: var(--bg); color: var(--text);
                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-               font-size: 14px; min-height: 100vh; }
+               font-size: 14px; display: flex; }
+
+        /* ── Sidebar ── */
+        .sidebar { width: var(--sb-w); flex-shrink: 0; background: var(--surface);
+                   border-right: 1px solid var(--border); display: flex; flex-direction: column;
+                   position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; z-index: 50; }
+        .sb-brand { padding: 18px 16px 4px; font-size: 11px; font-weight: 700;
+                    letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+        .sb-title { font-size: 13px; font-weight: 600; color: var(--text);
+                    padding: 2px 16px 14px; border-bottom: 1px solid var(--border); }
+        .sb-section { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                      text-transform: uppercase; color: var(--muted); padding: 16px 16px 8px; }
+        .sb-nav a { display: block; padding: 8px 16px; color: var(--muted); text-decoration: none;
+                    font-size: 13px; transition: color .15s, background .15s;
+                    border-left: 2px solid transparent; }
+        .sb-nav a:hover  { color: var(--text); background: var(--surface2); }
+        .sb-nav a.active { color: var(--accent); border-left-color: var(--accent);
+                           background: rgba(249,115,22,.06); }
+        .date-btns { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
+        .date-btns button { background: var(--surface2); border: 1px solid var(--border);
+                            color: var(--muted); border-radius: 6px; padding: 4px 10px;
+                            font-size: 12px; cursor: pointer; transition: all .15s; }
+        .date-btns button:hover  { border-color: var(--accent); color: var(--text); }
+        .date-btns button.active { background: var(--accent); border-color: var(--accent);
+                                   color: #fff; font-weight: 600; }
+        .date-inputs { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 7px; }
+        .date-row { display: flex; align-items: center; gap: 8px; }
+        .date-row label { font-size: 11px; color: var(--muted); width: 28px; flex-shrink: 0; }
+        .date-row input[type=date] { background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 12px;
+            flex: 1; cursor: pointer; color-scheme: dark; min-width: 0; }
+        .date-row input[type=date]:focus { outline: none; border-color: var(--accent); }
+        .field-toggle { padding: 2px 16px 14px; display: flex; flex-direction: column; gap: 7px;
+                        border-bottom: 1px solid var(--border); }
+        .field-opt { display: flex; align-items: center; gap: 8px; font-size: 12px;
+                     color: var(--muted); cursor: pointer; padding: 3px 0; }
+        .field-opt input { accent-color: var(--accent); cursor: pointer; width: 14px; height: 14px; }
+        .field-opt.selected { color: var(--text); }
+        .sb-quick { display: flex; gap: 6px; padding: 2px 16px 10px; }
+        .sb-quick button { flex: 1; background: none; border: 1px solid var(--border);
+                           color: var(--muted); border-radius: 5px; padding: 3px 6px;
+                           font-size: 11px; cursor: pointer; transition: all .15s; }
+        .sb-quick button:hover { border-color: var(--muted); color: var(--text); }
+        .wh-check { padding: 4px 16px; }
+        .wh-check label { display: flex; align-items: center; gap: 7px; font-size: 12px;
+                          color: var(--muted); cursor: pointer; user-select: none; }
+        .wh-check label:hover { color: var(--text); }
+        .wh-check input { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+        .wh-check .n { margin-left: auto; font-size: 10.5px; opacity: .65; }
+        .wh-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+        /* ── Main wrap ── */
+        .main-wrap { margin-left: var(--sb-w); flex: 1; min-width: 0;
+                     display: flex; flex-direction: column; min-height: 100vh; }
 
         header { background: var(--surface); border-bottom: 1px solid var(--border);
                  padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
@@ -35,7 +90,7 @@
         .page-nav a:hover  { color: var(--text); }
         .page-nav a.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
-        main { padding: 22px 28px; max-width: 1800px; }
+        main { padding: 22px 28px; flex: 1; min-width: 0; }
 
         #loading { display: flex; flex-direction: column; align-items: center;
                    justify-content: center; height: 60vh; gap: 14px; color: var(--muted); }
@@ -69,38 +124,6 @@
                border-radius: 7px; padding: 9px 14px; font-size: 12.5px; cursor: pointer;
                transition: border-color .15s, color .15s; white-space: nowrap; }
         .btn:hover { border-color: var(--accent); color: var(--accent); }
-
-        /* ── Multi-select ── */
-        .ms { position: relative; }
-        .ms-btn { width: 100%; text-align: left; background: var(--surface2);
-                  border: 1px solid var(--border); color: var(--text); border-radius: 7px;
-                  padding: 9px 28px 9px 12px; font-size: 13px; cursor: pointer;
-                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                  transition: border-color .15s; font-family: inherit; }
-        .ms-btn:hover, .ms.open .ms-btn { border-color: var(--accent); }
-        .ms-btn::after { content: '▾'; position: absolute; right: 10px; top: 50%;
-                         transform: translateY(-50%); color: var(--muted); font-size: 11px;
-                         pointer-events: none; }
-        .ms-count { display: inline-block; background: var(--accent); color: #0c0e16;
-                    font-size: 10px; font-weight: 700; border-radius: 9px;
-                    padding: 1px 6px; margin-left: 5px; }
-        .ms-panel { display: none; position: absolute; top: calc(100% + 5px); left: 0;
-                    min-width: 100%; max-width: 320px; background: var(--surface2);
-                    border: 1px solid var(--border-strong, var(--accent)); border-radius: 8px;
-                    box-shadow: 0 10px 28px rgba(0,0,0,.55); z-index: 60;
-                    max-height: 280px; overflow-y: auto; padding: 5px; }
-        .ms.open .ms-panel { display: block; }
-        .ms-tools { display: flex; gap: 10px; padding: 5px 8px 7px;
-                    border-bottom: 1px solid var(--border); margin-bottom: 4px; }
-        .ms-tools button { background: none; border: none; color: var(--muted); cursor: pointer;
-                           font-size: 11px; padding: 0; font-family: inherit; }
-        .ms-tools button:hover { color: var(--accent); }
-        .ms-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-                  border-radius: 5px; cursor: pointer; font-size: 12.5px; white-space: nowrap; }
-        .ms-opt:hover { background: rgba(249,115,22,.12); }
-        .ms-opt input { width: 13px; height: 13px; accent-color: var(--accent);
-                        margin: 0; cursor: pointer; flex-shrink: 0; }
-        .ms-opt span.n { color: var(--muted); font-size: 11px; margin-left: auto; padding-left: 10px; }
 
         /* ── KPI tiles ── */
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px,1fr)); gap: 13px; }
@@ -151,6 +174,95 @@
 </head>
 <body>
 
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+    <div class="sb-brand">SpeedGoat</div>
+    <div class="sb-title">Outbound Shipments</div>
+
+    <div class="sb-section">Pages</div>
+    <nav class="sb-nav">
+        <a href="index.html">Warehouse KPIs</a>
+        <a href="outbound-shipments.html" class="active">Outbound Shipments</a>
+        <a href="product-catalog.html">Product Catalog</a>
+        <a href="bundle-mapping.html">Bundle Mapping</a>
+        <a href="transportation-costs.html">Transportation Costs</a>
+        <a href="shipping-estimator.html">Shipping Estimator</a>
+        <a href="validation.html">Validation</a>
+    </nav>
+
+    <div class="sb-section">Navigate</div>
+    <nav class="sb-nav" id="sb-nav">
+        <a href="#s-summary" class="active">Summary</a>
+        <a href="#s-volume">Volume &amp; mix</a>
+        <a href="#s-stages">Time per stage</a>
+        <a href="#s-regions">By region</a>
+        <a href="#s-lanes">Lanes</a>
+        <a href="#s-ships">Shipments</a>
+    </nav>
+
+    <div class="sb-section">Date range</div>
+    <div class="date-btns">
+        <button id="dr-30"  onclick="setPreset(30)">30d</button>
+        <button id="dr-90"  onclick="setPreset(90)">90d</button>
+        <button id="dr-180" onclick="setPreset(180)">6m</button>
+        <button id="dr-365" onclick="setPreset(365)" class="active">12m</button>
+        <button id="dr-730" onclick="setPreset(730)">24m</button>
+        <button id="dr-0"   onclick="setPreset(0)">All</button>
+    </div>
+    <div class="date-inputs">
+        <div class="date-row"><label>From</label>
+            <input type="date" id="date-from" onchange="onDateChange()"></div>
+        <div class="date-row"><label>To</label>
+            <input type="date" id="date-to" onchange="onDateChange()"></div>
+    </div>
+
+    <div class="sb-section" style="padding-bottom:8px">Filter date by</div>
+    <div class="field-toggle">
+        <label class="field-opt selected" id="fopt-created">
+            <input type="radio" name="date-field" value="createdTs" checked onchange="onFieldChange(this)">
+            Created date
+        </label>
+        <label class="field-opt" id="fopt-departed">
+            <input type="radio" name="date-field" value="departedTs" onchange="onFieldChange(this)">
+            Departed date
+        </label>
+        <label class="field-opt" id="fopt-delivered">
+            <input type="radio" name="date-field" value="deliveredTs" onchange="onFieldChange(this)">
+            Delivered date
+        </label>
+    </div>
+
+    <div class="sb-section">Origin</div>
+    <div class="sb-quick">
+        <button onclick="msSetAll('origin',true)">All</button>
+        <button onclick="msSetAll('origin',false)">None</button>
+    </div>
+    <div id="ms-origin"></div>
+
+    <div class="sb-section">Destination</div>
+    <div class="sb-quick">
+        <button onclick="msSetAll('dest',true)">All</button>
+        <button onclick="msSetAll('dest',false)">None</button>
+    </div>
+    <div id="ms-dest"></div>
+
+    <div class="sb-section">Mode</div>
+    <div class="sb-quick">
+        <button onclick="msSetAll('mode',true)">All</button>
+        <button onclick="msSetAll('mode',false)">None</button>
+    </div>
+    <div id="ms-mode"></div>
+
+    <div class="sb-section">Status</div>
+    <div class="sb-quick">
+        <button onclick="msSetAll('status',true)">All</button>
+        <button onclick="msSetAll('status',false)">None</button>
+    </div>
+    <div id="ms-status" style="padding-bottom:18px"></div>
+</aside>
+
+<div class="main-wrap">
+
 <header>
     <div class="hdr-left">
         <h1>Outbound Shipments</h1>
@@ -178,44 +290,15 @@
 
     <div id="app" style="display:none">
 
-        <!-- Filters -->
-        <div class="card">
-            <div class="filters">
-                <div class="field-group" style="flex:0 0 140px">
-                    <label>Created</label>
-                    <select id="f-range" onchange="apply()">
-                        <option value="90">Last 90 days</option>
-                        <option value="180">Last 180 days</option>
-                        <option value="365" selected>Last 12 months</option>
-                        <option value="730">Last 24 months</option>
-                        <option value="0">All time</option>
-                    </select>
-                </div>
-                <div class="field-group" style="flex:0 0 185px">
-                    <label>Origin</label>
-                    <div class="ms" id="ms-origin"></div>
-                </div>
-                <div class="field-group" style="flex:0 0 185px">
-                    <label>Destination</label>
-                    <div class="ms" id="ms-dest"></div>
-                </div>
-                <div class="field-group" style="flex:0 0 140px">
-                    <label>Mode</label>
-                    <div class="ms" id="ms-mode"></div>
-                </div>
-                <div class="field-group" style="flex:0 0 150px">
-                    <label>Status</label>
-                    <div class="ms" id="ms-status"></div>
-                </div>
-                <div class="field-group" style="flex:1;min-width:170px">
-                    <label>Search</label>
-                    <input type="text" id="f-search" placeholder="Shipment no, carrier, container…" oninput="apply()">
-                </div>
-                <div class="field-group" style="flex:0 0 auto">
-                    <label>&nbsp;</label>
-                    <button class="btn" onclick="exportCSV()">Export CSV</button>
-                </div>
+        <!-- Search + export -->
+        <div class="card" style="padding:14px 18px">
+            <div class="filters" style="align-items:center;gap:12px">
+                <input type="text" id="f-search" style="flex:1;min-width:200px"
+                       placeholder="Search shipment no, carrier, container, BOL, transfer order…"
+                       oninput="apply()">
+                <button class="btn" onclick="exportCSV()">Export CSV</button>
             </div>
+            <div id="active-filters" style="font-size:11.5px;color:var(--muted);margin-top:10px"></div>
         </div>
 
         <!-- Data quality -->
@@ -228,11 +311,11 @@
         </div>
 
         <!-- KPIs -->
-        <div class="section-label">Summary</div>
+        <div class="section-label" id="s-summary">Summary</div>
         <div class="kpi-grid" id="kpis"></div>
 
         <!-- Charts -->
-        <div class="section-label">Volume &amp; mix</div>
+        <div class="section-label" id="s-volume">Volume &amp; mix</div>
         <div class="card">
             <div class="card-title">Monthly volume</div>
             <div class="card-sub">CBM shipped per month, with shipment count overlaid.</div>
@@ -252,7 +335,7 @@
         </div>
 
         <!-- Stage durations -->
-        <div class="section-label">Where the time goes</div>
+        <div class="section-label" id="s-stages">Where the time goes</div>
         <div class="card">
             <div class="card-title">Median days per stage</div>
             <div class="card-sub" id="stage-sub">From the shipment status history, so it reflects what
@@ -261,7 +344,7 @@
         </div>
 
         <!-- Stage durations by region -->
-        <div class="card">
+        <div class="card" id="s-regions">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
                 <div>
                     <div class="card-title">By destination region</div>
@@ -278,7 +361,7 @@
         </div>
 
         <!-- Lane summary -->
-        <div class="section-label">Lanes</div>
+        <div class="section-label" id="s-lanes">Lanes</div>
         <div class="card">
             <div class="card-title">Origin → destination</div>
             <div class="card-sub">Cost per CBM is the comparable number across lanes.
@@ -287,7 +370,7 @@
         </div>
 
         <!-- Detail -->
-        <div class="section-label">Shipments</div>
+        <div class="section-label" id="s-ships">Shipments</div>
         <div class="card">
             <div class="card-title">Detail</div>
             <div class="card-sub">Click any heading to sort. <span id="row-count"></span></div>
@@ -301,6 +384,8 @@
 
     </div>
 </main>
+
+</div><!-- /.main-wrap -->
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -383,74 +468,89 @@ const MS = {
     status: { sel:new Set(), opts:[], noun:'statuses',     field:s=>s.status },
 };
 
+// Rendered as sidebar checkbox lists, matching the Warehouse KPIs page.
+// All boxes start ticked so the default state reads as "everything included",
+// and unticking is how you narrow — which is what the KPI page does.
 function msBuild(key) {
     const m = MS[key];
     const el = document.getElementById(`ms-${key}`);
-    el.innerHTML = `
-        <button type="button" class="ms-btn" id="ms-${key}-btn" onclick="msToggle('${key}')"></button>
-        <div class="ms-panel">
-            <div class="ms-tools">
-                <button type="button" onclick="msSetAll('${key}',true)">Select all</button>
-                <button type="button" onclick="msSetAll('${key}',false)">Clear</button>
-            </div>
-            ${m.opts.map(o => `
-                <label class="ms-opt">
-                    <input type="checkbox" value="${o.value}"
-                           onchange="msPick('${key}', this.value, this.checked)">
-                    <span>${o.label}</span><span class="n">${o.count}</span>
-                </label>`).join('')}
-        </div>`;
-    msLabel(key);
-}
-
-function msLabel(key) {
-    const m = MS[key];
-    const btn = document.getElementById(`ms-${key}-btn`);
-    if (!btn) return;
-    if (m.sel.size === 0)      btn.innerHTML = `All ${m.noun}`;
-    else if (m.sel.size === 1) {
-        const o = m.opts.find(o => o.value === [...m.sel][0]);
-        btn.innerHTML = o ? o.label : '1 selected';
-    } else btn.innerHTML = `${m.noun.replace(/e?s$/,'')}s <span class="ms-count">${m.sel.size}</span>`;
-}
-
-function msToggle(key) {
-    const el = document.getElementById(`ms-${key}`);
-    const wasOpen = el.classList.contains('open');
-    document.querySelectorAll('.ms.open').forEach(o => o.classList.remove('open'));
-    if (!wasOpen) el.classList.add('open');
+    if (!el) return;
+    el.innerHTML = m.opts.map(o => `
+        <div class="wh-check">
+            <label>
+                <input type="checkbox" value="${o.value}" ${m.sel.has(o.value) ? 'checked' : ''}
+                       onchange="msPick('${key}', this.value, this.checked)">
+                ${o.color ? `<span class="wh-dot" style="background:${o.color}"></span>` : ''}
+                <span>${o.label}</span><span class="n">${o.count}</span>
+            </label>
+        </div>`).join('');
 }
 
 function msPick(key, value, checked) {
     checked ? MS[key].sel.add(value) : MS[key].sel.delete(value);
-    msLabel(key); apply();
+    apply();
 }
 
 function msSetAll(key, on) {
     const m = MS[key];
     m.sel = on ? new Set(m.opts.map(o => o.value)) : new Set();
-    document.querySelectorAll(`#ms-${key} .ms-opt input`)
+    document.querySelectorAll(`#ms-${key} input[type=checkbox]`)
             .forEach(cb => { cb.checked = on; });
-    msLabel(key); apply();
+    apply();
 }
 
-// Close any open panel when clicking elsewhere
-document.addEventListener('click', e => {
-    if (!e.target.closest('.ms')) document.querySelectorAll('.ms.open')
-        .forEach(o => o.classList.remove('open'));
-});
+// ── Date range ────────────────────────────────────────────────────────────────
+let DATE_FIELD = 'createdTs';
+let DATE_FROM = null, DATE_TO = null;
+
+function setPreset(days) {
+    document.querySelectorAll('.date-btns button')
+            .forEach(b => b.classList.toggle('active', b.id === `dr-${days}`));
+    if (!days) { DATE_FROM = null; DATE_TO = null; }
+    else {
+        DATE_TO   = new Date();
+        DATE_FROM = new Date(Date.now() - days*86400000);
+    }
+    const iso = d => d ? d.toISOString().slice(0,10) : '';
+    document.getElementById('date-from').value = iso(DATE_FROM);
+    document.getElementById('date-to').value   = iso(DATE_TO);
+    apply();
+}
+
+function onDateChange() {
+    const f = document.getElementById('date-from').value;
+    const t = document.getElementById('date-to').value;
+    DATE_FROM = f ? new Date(f + 'T00:00:00') : null;
+    DATE_TO   = t ? new Date(t + 'T23:59:59') : null;
+    // A hand-picked range is no longer one of the presets
+    document.querySelectorAll('.date-btns button').forEach(b => b.classList.remove('active'));
+    apply();
+}
+
+function onFieldChange(el) {
+    DATE_FIELD = el.value;
+    document.querySelectorAll('.field-opt')
+            .forEach(o => o.classList.toggle('selected', o.contains(el)));
+    apply();
+}
 
 // ── Filtering ─────────────────────────────────────────────────────────────────
 function apply() {
-    const days   = parseInt(document.getElementById('f-range').value) || 0;
-    const q      = document.getElementById('f-search').value.trim().toLowerCase();
-    const cutoff = days ? Date.now() - days*86400000 : null;
+    const q  = document.getElementById('f-search').value.trim().toLowerCase();
+    const lo = DATE_FROM ? DATE_FROM.getTime() : null;
+    const hi = DATE_TO   ? DATE_TO.getTime()   : null;
 
     BASE = ALL.filter(s => {
-        if (cutoff && (!s.createdTs || s.createdTs < cutoff)) return false;
-        // Empty set = no constraint
-        for (const [key, m] of Object.entries(MS)) {
-            if (m.sel.size && !m.sel.has(m.field(s) || '')) return false;
+        // Date range applies to whichever date field is selected in the sidebar
+        if (lo != null || hi != null) {
+            const ts = s[DATE_FIELD];
+            if (!ts) return false;
+            if (lo != null && ts < lo) return false;
+            if (hi != null && ts > hi) return false;
+        }
+        // Checkbox lists: a value must be ticked to be included
+        for (const m of Object.values(MS)) {
+            if (!m.sel.has(m.field(s) || '')) return false;
         }
         if (q) {
             const hay = [s.shipment_number, s.carrier, s.container_number,
@@ -463,6 +563,30 @@ function apply() {
     const dq = DQ_CHECKS.find(c => c.id === DQ_FOCUS);
     VIEW = dq ? BASE.filter(dq.fn) : BASE;
     render();
+}
+
+// States in prose what the sidebar is currently doing, so a narrowed view is
+// never mistaken for the whole dataset.
+function renderActiveFilters() {
+    const el = document.getElementById('active-filters');
+    if (!el) return;
+    const bits = [];
+    const fieldLabel = { createdTs:'created', departedTs:'departed', deliveredTs:'delivered' }[DATE_FIELD];
+    if (DATE_FROM || DATE_TO) {
+        const f = DATE_FROM ? dt(DATE_FROM.getTime()) : 'the start';
+        const t = DATE_TO   ? dt(DATE_TO.getTime())   : 'now';
+        bits.push(`<strong>${fieldLabel}</strong> between ${f} and ${t}`);
+    } else bits.push(`all dates`);
+
+    Object.entries(MS).forEach(([key, m]) => {
+        const total = m.opts.length, on = m.sel.size;
+        if (on === total) return;                       // nothing excluded
+        const noun = key === 'dest' ? 'destinations' : m.noun;
+        bits.push(on === 0 ? `<span style="color:var(--amber)">no ${noun} selected</span>`
+                           : `${on} of ${total} ${noun}`);
+    });
+
+    el.innerHTML = `Showing <strong>${BASE.length}</strong> of ${ALL.length} shipments · ${bits.join(' · ')}`;
 }
 
 // ── Data-quality buckets ──────────────────────────────────────────────────────
@@ -489,6 +613,7 @@ function dqExport(id) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function render() {
+    renderActiveFilters();
     renderDQ();
     renderKPIs();
     renderCharts();
@@ -1202,6 +1327,10 @@ async function init() {
     MS.dest.opts   = buildOpts(s => s.destination_id, whName);
     MS.mode.opts   = buildOpts(s => s.mode);
     MS.status.opts = buildOpts(s => s.status);
+    // Mode gets the colour dots used elsewhere on the page
+    MS.mode.opts.forEach(o => { o.color = MODE_COLOR[o.value] || '#7c87a0'; });
+    // Everything ticked by default = nothing filtered out
+    Object.values(MS).forEach(m => { m.sel = new Set(m.opts.map(o => o.value)); });
     Object.keys(MS).forEach(msBuild);
 
     const originIds = MS.origin.opts.filter(o => o.value).length;
@@ -1217,7 +1346,26 @@ async function init() {
 
     document.getElementById('loading').style.display = 'none';
     document.getElementById('app').style.display = 'block';
-    apply();
+    setPreset(365);      // matches the 12m button marked active in the markup
+    initScrollSpy();
+}
+
+// Highlight the Navigate entry for whichever section is in view
+function initScrollSpy() {
+    const links = [...document.querySelectorAll('#sb-nav a')];
+    const targets = links.map(a => document.querySelector(a.getAttribute('href')))
+                         .filter(Boolean);
+    if (!targets.length) return;
+    const spy = () => {
+        let current = targets[0];
+        for (const t of targets) {
+            if (t.getBoundingClientRect().top <= 120) current = t;
+        }
+        links.forEach(a => a.classList.toggle('active',
+            a.getAttribute('href') === `#${current.id}`));
+    };
+    window.addEventListener('scroll', spy, { passive:true });
+    spy();
 }
 
 init().catch(err => {
