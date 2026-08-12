@@ -254,6 +254,23 @@
             <div class="tbl-wrap"><table class="d" id="stage-tbl"></table></div>
         </div>
 
+        <!-- Stage durations by region -->
+        <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+                <div>
+                    <div class="card-title">By destination region</div>
+                    <div class="card-sub" id="region-sub">Median days per stage, so regions can be compared across a row.</div>
+                </div>
+                <label style="display:flex;align-items:center;gap:7px;font-size:12px;
+                              color:var(--muted);cursor:pointer;white-space:nowrap;padding-top:2px">
+                    <input type="checkbox" id="excl-express" checked onchange="render()"
+                           style="width:13px;height:13px;accent-color:var(--accent);margin:0;cursor:pointer">
+                    Exclude express
+                </label>
+            </div>
+            <div class="tbl-wrap"><table class="d" id="region-tbl"></table></div>
+        </div>
+
         <!-- Lane summary -->
         <div class="section-label">Lanes</div>
         <div class="card">
@@ -309,6 +326,13 @@ function groupBy(a,fn){ return a.reduce((m,x)=>{const k=fn(x);(m[k]=m[k]||[]).pu
 // quirk, so label it explicitly instead of showing a bare dash.
 const NOT_SET = 'Not set';
 const whName = id => id ? (WH[id] || id.slice(0,8)) : NOT_SET;
+// Warehouse names encode the region as a prefix — "EU-Active Ants", "UK-TFP",
+// "US-Novex1" — so the region is the part before the first hyphen.
+const regionOf = name => {
+    if (!name || name === NOT_SET) return NOT_SET;
+    const m = name.match(/^([A-Za-z]{2,4})[-\s]/);
+    return m ? m[1].toUpperCase() : name;
+};
 const laneCell = name => name === NOT_SET
     ? `<td class="lane" style="color:var(--amber);font-style:italic"
            title="Not recorded in Forge — open the shipment and set it">${NOT_SET}</td>`
@@ -435,21 +459,93 @@ function render() {
     renderKPIs();
     renderCharts();
     renderStages();
+    renderRegions();
     renderLanes();
     renderTable();
+}
+
+// Stage durations broken out by destination region. A matrix rather than one
+// board per region, so a stage can be compared across regions along a row.
+const STAGE_DEFS = [
+    ['Created → booked',           'toBookedDays',    'your team raising it'],
+    ['Booked → confirmed',         'bookedToConfirm', 'forwarder confirming space'],
+    ['Confirmed → departed',       'awaitDepart',     'waiting to sail or fly'],
+    ['Departed → arrived at port', 'atPortDays',      'in transit'],
+    ['Arrived → discharged',       'dischargeDays',   'port handling'],
+    ['Discharged → delivered',     'lastLegDays',     'customs and final leg'],
+];
+
+function renderRegions() {
+    const exclExpress = document.getElementById('excl-express')?.checked;
+    let pool = VIEW.filter(s => s.hasHistory);
+    if (exclExpress) pool = pool.filter(s => s.mode !== 'express');
+
+    // Regions ordered by shipment count, so the biggest lanes read left to right
+    const byRegion = groupBy(pool, s => s.region);
+    const regions = Object.entries(byRegion)
+        .sort((a,b) => b[1].length - a[1].length)
+        .map(([r]) => r);
+
+    const sub = document.getElementById('region-sub');
+    if (sub) sub.innerHTML =
+        `Median days per stage, so regions can be compared across a row. `
+      + `<strong>${pool.length}</strong> shipments with full history`
+      + (exclExpress ? `, express excluded` : `, express included`)
+      + `. A dash means too little data for that stage in that region.`;
+
+    if (!regions.length) {
+        document.getElementById('region-tbl').innerHTML =
+            `<tbody><tr><td class="muted">No shipments with status history match these filters.</td></tr></tbody>`;
+        return;
+    }
+
+    // Colour each cell against the best region for that stage, so the slow one stands out
+    const cell = (vals, best) => {
+        if (!vals.length) return `<td class="r muted">—</td>`;
+        const m = median(vals);
+        const ratio = best > 0 ? m / best : 1;
+        const cls = ratio <= 1.25 ? 'g' : ratio <= 2 ? 'a' : 'r_';
+        return `<td class="r ${cls}" style="font-weight:600"
+                    title="${vals.length} shipments">${f1(m)} d</td>`;
+    };
+
+    const rows = STAGE_DEFS.map(([label, key, who]) => {
+        const per = regions.map(r => byRegion[r].map(s => s[key]).filter(v => v != null));
+        const meds = per.map(v => v.length ? median(v) : null).filter(v => v != null);
+        const best = meds.length ? Math.min(...meds) : 0;
+        return `<tr>
+            <td style="font-weight:600">${label}</td>
+            <td class="muted" style="font-size:11.5px">${who}</td>
+            ${per.map(v => cell(v, best)).join('')}
+        </tr>`;
+    }).join('');
+
+    const totalsRow = regions.map(r => {
+        const v = byRegion[r].map(s => s.totalDays).filter(x => x != null);
+        return `<td class="r" style="font-weight:700">${v.length?f1(median(v))+' d':'—'}</td>`;
+    }).join('');
+
+    document.getElementById('region-tbl').innerHTML = `
+        <thead><tr>
+            <th>Stage</th><th>Owner</th>
+            ${regions.map(r => `<th class="r">${r}<br>
+                <span style="font-weight:400;text-transform:none;letter-spacing:0">
+                    ${byRegion[r].length} ship.</span></th>`).join('')}
+        </tr></thead>
+        <tbody>
+            ${rows}
+            <tr style="border-top:1px solid var(--border)">
+                <td style="font-weight:700">End to end</td>
+                <td class="muted" style="font-size:11.5px">created → delivered</td>
+                ${totalsRow}
+            </tr>
+        </tbody>`;
 }
 
 // Median dwell per lifecycle stage, so a delay can be attributed to whoever
 // owns that stage rather than lumped into one "it took 9 days" figure.
 function renderStages() {
-    const stages = [
-        ['Created → booked',            'toBookedDays',    'your team raising it'],
-        ['Booked → confirmed',          'bookedToConfirm', 'forwarder confirming space'],
-        ['Confirmed → departed',        'awaitDepart',     'waiting to sail or fly'],
-        ['Departed → arrived at port',  'atPortDays',      'in transit'],
-        ['Arrived → discharged',        'dischargeDays',   'port handling'],
-        ['Discharged → delivered',      'lastLegDays',     'customs and final leg'],
-    ];
+    const stages = STAGE_DEFS;
     // Only shipments with real status history contribute — a stage cannot be
     // measured from a fallback date column without inventing a duration.
     const pool  = VIEW.filter(s => s.hasHistory);
@@ -1022,6 +1118,7 @@ async function init() {
         return {
             ...s,
             originName: whName(s.origin_id), destName: whName(s.destination_id),
+            region: regionOf(whName(s.destination_id)),
             toNumbers: (toByShip[s.id]||[]).map(t=>t.ref).filter(Boolean).join(', ') || null,
             skuCount: skus.size, units, cbm, cbmSrc, weight, calcCBM, calcKG,
             freight, totalCost,
