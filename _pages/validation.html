@@ -110,9 +110,15 @@
         a.forge:hover::after { color: var(--accent); }
 
         /* Expandable SKU breakdown */
-        .exp-btn { background: none; border: none; color: var(--muted); cursor: pointer;
-                   font-family: inherit; font-size: 11px; padding: 0 2px; width: 16px; }
-        .exp-btn:hover { color: var(--accent); }
+        /* Sized for an easy click target rather than a decorative glyph */
+        .exp-btn { background: none; border: 1px solid transparent; border-radius: 5px;
+                   color: var(--muted); cursor: pointer; font-family: inherit;
+                   font-size: 15px; line-height: 1; width: 26px; height: 26px;
+                   display: inline-flex; align-items: center; justify-content: center;
+                   transition: color .15s, background .15s, border-color .15s; }
+        .exp-btn:hover { color: var(--accent); background: rgba(249,115,22,.12);
+                         border-color: rgba(249,115,22,.35); }
+        .exp-btn.open { color: var(--accent); }
         tr.detail-row > td { background: rgba(30,34,53,.6); padding: 0 10px 12px; }
         table.sub { width: auto; min-width: 520px; border-collapse: collapse;
                     font-size: 11.5px; margin: 4px 0 2px 22px; }
@@ -551,7 +557,7 @@ function render(months, basis) {
 
     document.getElementById('detail-tbl').innerHTML = `
         <thead><tr>
-            <th style="width:20px;cursor:default"></th>
+            <th style="width:34px;cursor:default"></th>
             ${th('shipment_number','Shipment')}
             ${th('mode','Mode')}
             ${th('service_type','Service')}
@@ -569,9 +575,11 @@ function render(months, basis) {
         </tr></thead>
         <tbody>${sorted.map(r => `
             <tr>
-                <td style="padding-right:0">
-                    <button type="button" class="exp-btn" onclick="toggleRow('${r.id}')"
-                            title="Show the SKUs on this shipment and which lack carton data"
+                <td style="padding:4px 2px 4px 6px">
+                    <button type="button" class="exp-btn${EXPANDED.has(r.id) ? ' open' : ''}"
+                            onclick="toggleRow('${r.id}')"
+                            aria-expanded="${EXPANDED.has(r.id)}"
+                            title="${EXPANDED.has(r.id) ? 'Hide' : 'Show'} the SKUs on this shipment and which lack carton data"
                     >${EXPANDED.has(r.id) ? '▾' : '▸'}</button>
                 </td>
                 <td class="mono">
