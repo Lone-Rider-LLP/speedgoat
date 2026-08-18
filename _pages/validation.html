@@ -100,6 +100,31 @@
                   color: var(--muted); margin-top: 10px; }
         .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
                     margin-right: 5px; vertical-align: middle; }
+
+        /* Deep link out to Forge */
+        a.forge { color: var(--text); text-decoration: none; font-weight: 600;
+                  border-bottom: 1px dotted var(--border); transition: color .15s, border-color .15s; }
+        a.forge:hover { color: var(--accent); border-bottom-color: var(--accent); }
+        a.forge::after { content: '↗'; font-size: 9px; margin-left: 3px;
+                         color: var(--muted); vertical-align: super; }
+        a.forge:hover::after { color: var(--accent); }
+
+        /* Expandable SKU breakdown */
+        .exp-btn { background: none; border: none; color: var(--muted); cursor: pointer;
+                   font-family: inherit; font-size: 11px; padding: 0 2px; width: 16px; }
+        .exp-btn:hover { color: var(--accent); }
+        tr.detail-row > td { background: rgba(30,34,53,.6); padding: 0 10px 12px; }
+        table.sub { width: auto; min-width: 520px; border-collapse: collapse;
+                    font-size: 11.5px; margin: 4px 0 2px 22px; }
+        table.sub th { text-align: left; font-size: 9.5px; letter-spacing: .06em;
+                       text-transform: uppercase; color: var(--muted); font-weight: 700;
+                       padding: 5px 9px; border-bottom: 1px solid var(--border);
+                       position: static; background: none; cursor: default; }
+        table.sub td { padding: 4px 9px; border-bottom: 1px solid rgba(42,47,69,.4); }
+        table.sub th.r, table.sub td.r { text-align: right; }
+        .sku-ok   { color: var(--green); }
+        .sku-gap  { color: var(--red); }
+        .sub-note { font-size: 11px; color: var(--muted); margin: 7px 0 0 22px; }
     </style>
 </head>
 <body>
@@ -206,6 +231,7 @@
                 <span><i style="background:var(--red)"></i>over 50%</span>
                 <span><i style="background:var(--border)"></i>coverage = share of units with carton data</span>
                 <span>access gap = actual minus model, in percentage points</span>
+                <span>▸ expands the SKU breakdown · shipment numbers link to Forge ↗</span>
             </div>
         </div>
 
@@ -236,6 +262,8 @@ let SKU_CAT   = {};
 let RESULTS   = [];
 let EXCLUDED  = [];
 let sortKey   = 'absVar';
+const FORGE_BASE = 'https://forge.lonerider.ai';
+const EXPANDED = new Set();   // shipment ids whose SKU breakdown is open
 let sortDir   = 1;
 let distChart = null;
 
@@ -523,6 +551,7 @@ function render(months, basis) {
 
     document.getElementById('detail-tbl').innerHTML = `
         <thead><tr>
+            <th style="width:20px;cursor:default"></th>
             ${th('shipment_number','Shipment')}
             ${th('mode','Mode')}
             ${th('service_type','Service')}
@@ -540,7 +569,16 @@ function render(months, basis) {
         </tr></thead>
         <tbody>${sorted.map(r => `
             <tr>
-                <td class="mono">${r.shipment_number || r.id.slice(0,8)}</td>
+                <td style="padding-right:0">
+                    <button type="button" class="exp-btn" onclick="toggleRow('${r.id}')"
+                            title="Show the SKUs on this shipment and which lack carton data"
+                    >${EXPANDED.has(r.id) ? '▾' : '▸'}</button>
+                </td>
+                <td class="mono">
+                    <a class="forge" href="${FORGE_BASE}/shipments/${r.id}" target="_blank" rel="noopener"
+                       title="Open ${r.shipment_number || 'this shipment'} in Forge"
+                    >${r.shipment_number || r.id.slice(0,8)}</a>
+                </td>
                 <td><span class="pill" style="background:${MODE_COLOR[r.mode]}22;color:${MODE_COLOR[r.mode]}">${r.mode}</span></td>
                 <td style="color:var(--muted)">${r.service_type || '—'}</td>
                 <td class="r" style="color:var(--muted)">${r.shipTs?fmtMonthYear(new Date(r.shipTs)):'—'}</td>
@@ -560,8 +598,8 @@ function render(months, basis) {
                 <td class="r ${r.accGap==null?'':Math.abs(r.accGap)<=0.10?'var-good':Math.abs(r.accGap)<=0.25?'var-ok':'var-bad'}">
                     ${r.accGap!=null?(r.accGap>0?'+':'')+(r.accGap*100).toFixed(1)+' pts':'—'}</td>
                 <td style="color:var(--muted);font-size:11px">${r.src}${r.rateUsed?` · ${fmt2(r.rateUsed)}`:''}</td>
-            </tr>`).join('')}
-        ${sorted.length ? '' : '<tr><td colspan="14" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
+            </tr>${EXPANDED.has(r.id) ? detailRow(r) : ''}`).join('')}
+        ${sorted.length ? '' : '<tr><td colspan="15" style="color:var(--muted)">No shipments met the criteria.</td></tr>'}
         </tbody>`;
 
     // ── Excluded table
@@ -584,6 +622,52 @@ function render(months, basis) {
         </tbody>`;
 
     renderDist();
+}
+
+// Per-shipment SKU breakdown. Answers the first question anyone asks when an
+// estimate looks wrong: which lines could not be measured?
+function detailRow(r) {
+    const gaps = r.lines.filter(l => !l.ok);
+    const done = r.lines.filter(l => l.ok);
+    const row = l => `
+        <tr>
+            <td class="mono">${l.sku}</td>
+            <td class="r mono">${fmt0(l.qty)}</td>
+            <td class="r mono">${l.cartons != null ? fmt0(l.cartons) : '—'}</td>
+            <td class="r mono">${l.ok ? fmt2(l.cbm) : '—'}</td>
+            <td class="r mono">${l.ok ? fmt0(l.kg) : '—'}</td>
+            <td class="${l.ok ? 'sku-ok' : 'sku-gap'}">${l.ok ? 'complete' : l.missing}</td>
+        </tr>`;
+
+    const unitsGap = gaps.reduce((t,l) => t + l.qty, 0);
+    return `<tr class="detail-row"><td colspan="15">
+        <table class="sub">
+            <thead><tr>
+                <th>SKU</th><th class="r">Units</th><th class="r">Cartons</th>
+                <th class="r">CBM</th><th class="r">Weight kg</th><th>Carton data</th>
+            </tr></thead>
+            <tbody>
+                ${gaps.map(row).join('')}
+                ${done.map(row).join('')}
+                ${r.lines.length ? '' : '<tr><td colspan="6" style="color:var(--muted)">No transfer order lines linked to this shipment.</td></tr>'}
+            </tbody>
+        </table>
+        <div class="sub-note">
+            ${gaps.length
+                ? `<strong style="color:var(--red)">${gaps.length} of ${r.lines.length} SKUs missing carton data</strong>
+                   — ${fmt0(unitsGap)} of ${fmt0(r.unitsAll)} units unaccounted for, so the
+                   ${fmt2(r.derivedCBM)} CBM and ${fmt0(r.derivedKG)} kg above are understated
+                   and the estimate is correspondingly low.`
+                : `All ${r.lines.length} SKUs have complete carton data — this shipment's variance
+                   reflects the rate model, not missing product data.`}
+        </div>
+    </td></tr>`;
+}
+
+function toggleRow(id) {
+    EXPANDED.has(id) ? EXPANDED.delete(id) : EXPANDED.add(id);
+    render(Math.max(1, parseInt(document.getElementById('rate-window').value) || 12),
+           document.getElementById('basis').value);
 }
 
 function setSort(key) {
@@ -682,18 +766,35 @@ async function init() {
                      || parseFloat(s.total_cbm) || 0;
 
         // Derive volume/weight from carton data, and measure how much of the
-        // cargo we could actually account for
+        // cargo we could actually account for. Per-line detail is retained so the
+        // row can be expanded to show exactly which SKUs are missing data — the
+        // question anyone asks first when an estimate looks wrong.
         let derivedCBM = 0, derivedKG = 0, unitsAll = 0, unitsOK = 0;
+        const lines = [];
         (linesByShip[s.id] || []).forEach(l => {
             unitsAll += l.qty;
             const p = l.sku ? SKU_CAT[l.sku] : null;
-            if (p && p.l > 0 && p.w > 0 && p.h > 0 && p.kg > 0 && p.qpc > 0) {
-                const cartons = Math.ceil(l.qty / p.qpc);
-                derivedCBM += (p.l * p.w * p.h / 1e6) * cartons;
-                derivedKG  += p.kg * cartons;
+            const ok = !!(p && p.l > 0 && p.w > 0 && p.h > 0 && p.kg > 0 && p.qpc > 0);
+            let lineCBM = 0, lineKG = 0, cartons = null;
+            if (ok) {
+                cartons = Math.ceil(l.qty / p.qpc);
+                lineCBM = (p.l * p.w * p.h / 1e6) * cartons;
+                lineKG  = p.kg * cartons;
+                derivedCBM += lineCBM;
+                derivedKG  += lineKG;
                 unitsOK    += l.qty;
             }
+            // Name the specific gap rather than just flagging the line
+            const missing = !p ? 'not in SKU catalogue'
+                : [ (!(p.qpc > 0)) && 'units/carton',
+                    (!(p.l   > 0)) && 'length',
+                    (!(p.w   > 0)) && 'width',
+                    (!(p.h   > 0)) && 'height',
+                    (!(p.kg  > 0)) && 'weight' ].filter(Boolean).join(', ');
+            lines.push({ sku: l.sku || '(no SKU)', qty: l.qty, ok, cartons,
+                         cbm: lineCBM, kg: lineKG, missing: ok ? '' : missing });
         });
+        lines.sort((a,b) => (a.ok - b.ok) || (b.qty - a.qty));   // gaps first
 
         const shipDate = s.origin_port_departure_date || s.actual_pickup_date
                        || s.creation_date || s.created_at || null;
@@ -705,7 +806,8 @@ async function init() {
             actualFreight: num('freight'),
             actualAccess:  num('accessorials'),
             bwkg, bcbm,
-            derivedCBM, derivedKG,
+            derivedCBM, derivedKG, lines,
+            unitsAll, unitsOK,
             coverage: unitsAll > 0 ? unitsOK / unitsAll : 0,
             shipTs: shipDate ? Date.parse(shipDate) : null,
         };
