@@ -296,6 +296,13 @@
                 <input type="text" id="f-search" style="flex:1;min-width:200px"
                        placeholder="Search shipment no, carrier, container, BOL, transfer order…"
                        oninput="apply()">
+                <label id="cancelled-toggle"
+                       style="display:none;align-items:center;gap:6px;font-size:12px;
+                              color:var(--muted);white-space:nowrap;cursor:pointer"
+                       title="Cancelled shipments are hidden by default. They carry no costs and no status history, so they cannot affect rates or stage timings — but they do inflate counts.">
+                    <input type="checkbox" id="f-cancelled" onchange="apply()">
+                    <span>Show cancelled (<span id="cancelled-count">0</span>)</span>
+                </label>
                 <button class="btn" onclick="exportCSV()">Export CSV</button>
             </div>
             <div id="active-filters" style="font-size:11.5px;color:var(--muted);margin-top:10px"></div>
@@ -409,6 +416,10 @@ let sortKey = 'createdTs', sortDir = -1;
 let chMonth = null, chDest = null, chMode = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// Single definition of "cancelled" so the filter, the count on the toggle and
+// the data-quality checks can never drift apart.
+const isCancelled = s => (s.status || '').trim().toLowerCase() === 'cancelled';
+
 const f0 = v => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
 const f1 = v => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:1,maximumFractionDigits:1});
 const f2 = v => v == null || !isFinite(v) ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -540,7 +551,16 @@ function apply() {
     const lo = DATE_FROM ? DATE_FROM.getTime() : null;
     const hi = DATE_TO   ? DATE_TO.getTime()   : null;
 
+    // Cancelled shipments are excluded by default. They are abandoned or test
+    // records — no cost lines and no status history — so they never reached the
+    // rate calculations or the stage medians, but they were inflating shipment
+    // counts and unit totals. Hidden rather than deleted: the toggle keeps them
+    // reachable, and a future cancellation is handled the same way without
+    // anyone having to chase individual rows.
+    const showCancelled = document.getElementById('f-cancelled')?.checked;
+
     BASE = ALL.filter(s => {
+        if (!showCancelled && isCancelled(s)) return false;
         // Date range applies to whichever date field is selected in the sidebar
         if (lo != null || hi != null) {
             const ts = s[DATE_FIELD];
@@ -562,6 +582,14 @@ function apply() {
     });
     const dq = DQ_CHECKS.find(c => c.id === DQ_FOCUS);
     VIEW = dq ? BASE.filter(dq.fn) : BASE;
+
+    // Show the toggle only when there is something to toggle, and say how many.
+    const nCancelled = ALL.filter(isCancelled).length;
+    const tog = document.getElementById('cancelled-toggle');
+    if (tog) {
+        tog.style.display = nCancelled > 0 ? 'flex' : 'none';
+        document.getElementById('cancelled-count').textContent = nCancelled;
+    }
     render();
 }
 
@@ -586,6 +614,15 @@ function renderActiveFilters() {
                            : `${on} of ${total} ${noun}`);
     });
 
+    // Say so explicitly either way — a hidden default exclusion is worse than a
+    // visible one, because it makes the totals unexplainable.
+    const nCancelled = ALL.filter(isCancelled).length;
+    if (nCancelled > 0) {
+        bits.push(document.getElementById('f-cancelled')?.checked
+            ? `<span style="color:var(--amber)">including ${nCancelled} cancelled</span>`
+            : `${nCancelled} cancelled hidden`);
+    }
+
     el.innerHTML = `Showing <strong>${BASE.length}</strong> of ${ALL.length} shipments · ${bits.join(' · ')}`;
 }
 
@@ -595,7 +632,8 @@ const DQ_CHECKS = [
     { id:'dest',     label:'no destination set',       fn: s => !s.destination_id },
     { id:'cbm',      label:'no CBM from any source',   fn: s => !(s.cbm > 0) },
     { id:'freight',  label:'no freight cost recorded', fn: s => !(s.freight > 0)
-                            && !['draft','cancelled'].includes((s.status||'').toLowerCase()) },
+                            && !isCancelled(s)
+                            && (s.status || '').trim().toLowerCase() !== 'draft' },
     { id:'to',       label:'no transfer order linked', fn: s => !s.toNumbers },
 ];
 
@@ -822,7 +860,7 @@ function renderKPIs() {
     const medProc = median(proc);
     const rated   = VIEW.filter(s => s.onTime != null);
     const otPct   = rated.length ? 100*rated.filter(s=>s.onTime).length/rated.length : null;
-    const inTr    = VIEW.filter(s => !s.deliveredTs && (s.status||'').toLowerCase() !== 'cancelled').length;
+    const inTr    = VIEW.filter(s => !s.deliveredTs && !isCancelled(s)).length;
     const cov     = VIEW.filter(s=>s.units>0);
     const medCov  = cov.length ? median(cov.map(s=>s.coverage)) : null;
 
