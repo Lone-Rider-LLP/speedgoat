@@ -435,6 +435,17 @@ function run() {
                 accEst = null;
             }
         } else {
+            // Parity with the estimator, which refuses to show a mode with fewer
+            // than MIN_MODE_COUNT shipments. This page did not apply that rule, so
+            // it was reporting error rates for modes the estimator never displays —
+            // rail sits on 2 shipments, and under leave-one-out that leaves 1.
+            // A rate off one shipment is noise, not a rate.
+            const modeCount = rates[s.mode]?.count ?? 0;
+            if (modeCount < MIN_MODE_COUNT) {
+                EXCLUDED.push({ ...s, reason:
+                    `${s.mode} has only ${modeCount} comparable shipment${modeCount === 1 ? '' : 's'} in the pool — needs ${MIN_MODE_COUNT}+` });
+                return;
+            }
             const r = getRate(rates, s.mode, s.destination_id);
             const a = applyRate(s.mode, r, s.derivedCBM, s.derivedKG);
             if (a) {
