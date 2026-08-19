@@ -424,6 +424,20 @@ let _sort = { col: 'product_label_name', dir: 1 };
 // Virtual/placeholder SKUs excluded from all views (same treatment as bundles)
 const VIRTUAL_PREFIXES = ['BUNDLE', 'RANDOM-'];
 const isVirtualSKU = sku => VIRTUAL_PREFIXES.some(p => sku?.toUpperCase().startsWith(p));
+
+// Bundles ship as their component SKUs, so they never carry master carton
+// dimensions of their own. Counting all 197 of them as gaps understated carton
+// coverage by roughly 10 points, so they are excluded from that figure only —
+// they still appear in the table and in every other count.
+const isBundle = r => (r.variant_type || '').trim().toLowerCase() === 'bundle';
+
+// Carton data counts as complete only when all five fields are present AND
+// positive. An earlier version tested four fields and omitted quantity, which
+// reported a higher number than the SQL we quote. These now agree.
+const CARTON_FIELDS = ['master_carton_length_cm', 'master_carton_width_cm',
+                       'master_carton_height_cm', 'master_carton_weight_kg',
+                       'master_carton_quantity'];
+const cartonComplete = r => CARTON_FIELDS.every(f => parseFloat(r[f]) > 0);
 let _missingFilter     = new Set(); // WMS "missing from" chips
 let _presentFilter     = new Set(); // WMS "present in" filter (warehouse cards)
 let _missingDataFilter = new Set(); // metafield completeness chips
@@ -684,14 +698,15 @@ function renderSummary() {
     }).join('');
 
     // ── Carton completeness bar ──
-    const cartonOk  = active.filter(r =>
-        r.master_carton_length_cm != null && r.master_carton_width_cm != null &&
-        r.master_carton_height_cm != null && r.master_carton_weight_kg != null).length;
-    const pct   = active.length > 0 ? Math.round(cartonOk / active.length * 100) : 0;
+    // Denominator is active NON-BUNDLE SKUs — see isBundle above for why.
+    const cartonPool = active.filter(r => !isBundle(r));
+    const bundleCount = active.length - cartonPool.length;
+    const cartonOk   = cartonPool.filter(cartonComplete).length;
+    const pct   = cartonPool.length > 0 ? Math.round(cartonOk / cartonPool.length * 100) : 0;
     const color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#eab308' : '#ef4444';
     document.getElementById('carton-bar').innerHTML = `
-        <span class="carton-bar-label">Carton data completeness</span>
-        <span class="carton-bar-count">${cartonOk.toLocaleString()} / ${active.length.toLocaleString()} active SKUs</span>
+        <span class="carton-bar-label" title="All five carton fields must be present and positive: length, width, height, weight, units per carton.${bundleCount > 0 ? `\n\n${bundleCount} bundle SKUs are excluded — bundles ship as their components and carry no carton dimensions of their own.` : ''}">Carton data completeness</span>
+        <span class="carton-bar-count">${cartonOk.toLocaleString()} / ${cartonPool.length.toLocaleString()} active non-bundle SKUs</span>
         <div class="carton-progress">
             <div class="carton-progress-fill" style="width:${pct}%;background:${color}"></div>
         </div>
