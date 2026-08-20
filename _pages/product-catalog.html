@@ -212,6 +212,36 @@
         .carton-progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
         .carton-pct { font-weight: 700; white-space: nowrap; min-width: 38px; text-align: right; }
 
+        /* ── Action required ── */
+        /* A dashboard that only reports gets ignored. Each row here names a
+           trigger, an owner and where the work is done, and clicking it filters
+           the table to the exact records — so the number is a work queue, not a
+           statistic. */
+        .act-wrap { background: var(--surface); border: 1px solid var(--border);
+                    border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+        .act-head { display: flex; align-items: center; gap: 10px;
+                    padding: 11px 16px; border-bottom: 1px solid var(--border);
+                    font-size: 12px; font-weight: 700; letter-spacing: .04em;
+                    text-transform: uppercase; color: var(--muted); }
+        .act-head .act-open { margin-left: auto; font-size: 11px; font-weight: 600;
+                              letter-spacing: 0; text-transform: none; }
+        .act-row { display: grid; grid-template-columns: 74px 1fr 150px 128px;
+                   gap: 12px; align-items: center; padding: 11px 16px;
+                   border-top: 1px solid rgba(255,255,255,.04); font-size: 12px;
+                   cursor: pointer; transition: background .15s; }
+        .act-row:first-of-type { border-top: none; }
+        .act-row:hover  { background: rgba(249,115,22,.06); }
+        .act-row.on     { background: rgba(249,115,22,.10); }
+        .act-row.clear  { cursor: default; opacity: .55; }
+        .act-row.clear:hover { background: none; }
+        .act-n     { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .act-what  { color: var(--text); line-height: 1.4; }
+        .act-what small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+        .act-who   { color: var(--muted); font-size: 11.5px; }
+        .act-who b { color: var(--text); font-weight: 600; display: block; }
+        .act-where { color: var(--muted); font-size: 11px; text-align: right; }
+        .act-tbc   { color: var(--amber); font-style: italic; }
+
         /* ── Column selector panel ── */
         .toolbar-right { margin-left: auto; display: flex; gap: 8px;
                          align-items: center; position: relative; }
@@ -374,6 +404,7 @@
         <div class="summary-row" id="summary-row"></div>
         <div class="wh-row" id="wh-row"></div>
         <div class="carton-bar" id="carton-bar"></div>
+        <div class="act-wrap" id="act-wrap" style="display:none"></div>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -714,6 +745,104 @@ function renderSummary() {
     `;
 }
 
+// ── Action required ──────────────────────────────────────────
+// Each item declares the trigger, who owns it and where the work is done.
+// `filter` applies the same chips a user would click by hand, so the count and
+// the resulting list can never disagree.
+//
+// Owner "—" means it has not been agreed yet. Left visible on purpose: an
+// unowned action item is the honest state, and it is harder to ignore on screen
+// than it is in a document.
+const ACTIONS = [
+    { id: 'carton',
+      what: 'missing master carton data',
+      note: 'Blocks the Shipping Estimator — these SKUs fall back to guessed volumes',
+      owner: 'Melanie', org: 'LHS',
+      where: 'Shopify metafields',
+      test: r => !cartonComplete(r),
+      filter: () => { _missingDataFilter = new Set(['master_carton_length_cm']); _statFilter = 'active'; } },
+
+    { id: 'lhs',
+      what: 'not stocked at CN-LHS',
+      note: 'Cannot ship from the supplier warehouse until set up there',
+      owner: '—', org: 'owner not agreed',
+      where: 'Forge / LHS',
+      test: r => !r.in_zenventory,
+      filter: () => { _missingFilter = new Set(['in_zenventory']); _statFilter = 'active'; } },
+
+    { id: 'procurement',
+      what: 'no procurement status',
+      note: 'Cannot tell whether a SKU is still being bought',
+      owner: '—', org: 'owner not agreed',
+      where: 'Shopify',
+      test: r => r.procurement_status == null || r.procurement_status === '',
+      filter: () => { _missingDataFilter = new Set(['procurement_status']); _statFilter = 'active'; } },
+
+    { id: 'label',
+      what: 'no product label name',
+      note: 'Falls back to the raw product name on every report',
+      owner: '—', org: 'owner not agreed',
+      where: 'Shopify',
+      test: r => r.product_label_name == null || r.product_label_name === '',
+      filter: () => { _missingDataFilter = new Set(['product_label_name']); _statFilter = 'active'; } },
+];
+let ACT_ON = null;
+
+function renderActions() {
+    // Counted on active non-bundle SKUs — the same population as the carton bar,
+    // so the two figures on this page always reconcile.
+    const pool = ALL.filter(r => !isVirtualSKU(r.sku)
+                              && r.shopify_status === 'active'
+                              && !isBundle(r));
+    const rows = ACTIONS.map(a => ({ ...a, n: pool.filter(a.test).length }));
+    const open = rows.filter(r => r.n > 0).length;
+
+    document.getElementById('act-wrap').style.display = '';
+    document.getElementById('act-wrap').innerHTML = `
+        <div class="act-head">
+            <span>Action required</span>
+            <span class="act-open">${open === 0
+                ? 'Nothing outstanding'
+                : `${open} of ${rows.length} open · counted on ${pool.length.toLocaleString()} active non-bundle SKUs`}</span>
+        </div>
+        ${rows.map(r => {
+            const clear = r.n === 0;
+            const colour = clear ? '#22c55e' : r.id === 'carton' ? '#ef4444' : 'var(--amber)';
+            return `<div class="act-row${clear ? ' clear' : ''}${ACT_ON === r.id ? ' on' : ''}"
+                         ${clear ? '' : `onclick="applyAction('${r.id}')"`}
+                         title="${clear ? 'Nothing outstanding' : `Click to filter the table to these ${r.n} SKUs`}">
+                <span class="act-n" style="color:${colour}">${clear ? '✓' : r.n.toLocaleString()}</span>
+                <span class="act-what">${r.what}<small>${r.note}</small></span>
+                <span class="act-who"><b class="${r.owner === '—' ? 'act-tbc' : ''}">${r.owner}</b>${r.org}</span>
+                <span class="act-where">${r.where}</span>
+            </div>`;
+        }).join('')}`;
+}
+
+// Clicking an action item is the same as setting the filters by hand — it does
+// not introduce a second, parallel definition of the same population.
+function applyAction(id) {
+    const a = ACTIONS.find(x => x.id === id);
+    if (!a) return;
+    if (ACT_ON === id) { clearAllFilters(); return; }   // clicking the same row clears
+    resetFilterState();
+    ACT_ON = id;
+    a.filter();
+    syncChipsToState();
+    renderSummary();
+    renderActions();
+    applyFilters();
+    document.querySelector('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Push filter state back onto the chips so the UI reflects what is applied.
+function syncChipsToState() {
+    document.querySelectorAll('.chip[data-missing]').forEach(c =>
+        c.classList.toggle('active', _missingDataFilter.has(c.dataset.missing)));
+    document.querySelectorAll('.chip[data-wms]').forEach(c =>
+        c.classList.toggle('active', _missingFilter.has(c.dataset.wms)));
+}
+
 // ── Clear filters ────────────────────────────────────────────
 function hasActiveFilters() {
     return document.getElementById('search').value.trim() ||
@@ -722,7 +851,9 @@ function hasActiveFilters() {
            _missingDataFilter.size > 0 || _statFilter !== null;
 }
 
-function clearAllFilters() {
+// State reset only — no rendering. Split out so applyAction() can reset and then
+// apply its own filters in one pass, rather than rendering the table twice.
+function resetFilterState() {
     document.getElementById('search').value = '';
     Object.keys(_msel).forEach(id => {
         document.getElementById(id + '-panel')
@@ -736,7 +867,13 @@ function clearAllFilters() {
     _missingDataFilter.clear();
     document.querySelectorAll('.chip.active').forEach(c => c.classList.remove('active'));
     _statFilter = null;
+    ACT_ON = null;
+}
+
+function clearAllFilters() {
+    resetFilterState();
     renderSummary();
+    renderActions();
     applyFilters();
 }
 
@@ -912,6 +1049,7 @@ async function init() {
         updateMissingCounts();
         applyFiltersFromURL();   // restore filter state from URL (no-op if no params)
         renderSummary();
+        renderActions();
         applyFilters();
 
         const syncTime = await fetchLastSyncTime();
