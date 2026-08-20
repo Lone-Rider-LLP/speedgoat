@@ -341,13 +341,13 @@
             <div class="section-label" id="s-efficiency">Cost Efficiency</div>
             <div class="row col2">
                 <div class="card">
-                    <div class="card-title">Cost per kg by Mode</div>
-                    <div class="card-subtitle">Avg USD per kg · based on billed weight</div>
+                    <div class="card-title">Cost per kg — Air &amp; Express</div>
+                    <div class="card-subtitle" title="Sea, rail and road are priced per CBM, so a per-kg figure for them is not a rate the carrier charged.">Avg USD per kg · billed weight · weight-priced modes only</div>
                     <div class="chart-wrap sm"><canvas id="ch-cpkg"></canvas></div>
                 </div>
                 <div class="card">
-                    <div class="card-title">Cost per CBM by Mode</div>
-                    <div class="card-subtitle">Avg USD per CBM · based on billed volume</div>
+                    <div class="card-title">Cost per CBM — Sea, Rail &amp; Road</div>
+                    <div class="card-subtitle" title="Air and express are priced on chargeable weight and carry no CBM data, so a per-CBM figure for them is not a rate the carrier charged.">Avg USD per CBM · billed volume · volume-priced modes only</div>
                     <div class="chart-wrap sm"><canvas id="ch-cpcbm"></canvas></div>
                 </div>
             </div>
@@ -356,13 +356,13 @@
             <div class="section-label" id="s-rate-trend">Rate Trends</div>
             <div class="row col2">
                 <div class="card">
-                    <div class="card-title">Cost per kg Over Time</div>
-                    <div class="card-subtitle">Monthly avg · by mode · higher = more expensive</div>
+                    <div class="card-title">Cost per kg Over Time — Air &amp; Express</div>
+                    <div class="card-subtitle">Monthly avg · weight-priced modes · higher = more expensive</div>
                     <div class="chart-wrap tall"><canvas id="ch-cpkg-trend"></canvas></div>
                 </div>
                 <div class="card">
-                    <div class="card-title">Cost per CBM Over Time</div>
-                    <div class="card-subtitle">Monthly avg · by mode · useful for sea/rail trends</div>
+                    <div class="card-title">Cost per CBM Over Time — Sea, Rail &amp; Road</div>
+                    <div class="card-subtitle">Monthly avg · volume-priced modes · higher = more expensive</div>
                     <div class="chart-wrap tall"><canvas id="ch-cpcbm-trend"></canvas></div>
                 </div>
             </div>
@@ -437,6 +437,21 @@ const SERVICE_LABEL = {
     fcl: 'FCL', lcl: 'LCL', express: 'Express', standard: 'Standard', bcn: 'BCN',
 };
 const MODES     = ['air','sea','express','rail','road'];
+
+// Each mode is priced on ONE basis. Air and express are charged on chargeable
+// weight; sea, rail and road on volume. A per-kg figure for sea, or a per-CBM
+// figure for air (which carries no CBM data at all), divides a cost by a
+// denominator the carrier never charged against — it renders as a rate but is
+// not one, and it is the more misleading for looking plausible.
+//
+// So the rate charts show each mode only on the basis it is actually priced on.
+const PRICED_ON   = { air:'kg', express:'kg', sea:'cbm', rail:'cbm', road:'cbm' };
+const pricedOnKg  = m => PRICED_ON[m] === 'kg';
+const pricedOnCbm = m => PRICED_ON[m] === 'cbm';
+const KG_MODES    = MODES.filter(pricedOnKg);
+const CBM_MODES   = MODES.filter(pricedOnCbm);
+const listModes   = ms => ms.map(m => m[0].toUpperCase()+m.slice(1)).join(', ')
+                            .replace(/, ([^,]*)$/, ' and $1');
 const STATUSES  = ['draft','booked','confirmed','departed','arrived_at_port','discharged','delivered','cancelled'];
 const COST_TYPES = ['freight','fuel','customs','handling','accessorials'];
 
@@ -820,11 +835,14 @@ function renderDestChart() {
 
 // ── Cost efficiency ───────────────────────────────────────────────────────────
 function renderEfficiency() {
-    // Avg cost/kg by mode
+    // Avg cost/kg by mode — weight-priced modes only, volume-priced modes only.
+    // See PRICED_ON for why the other combination is excluded rather than plotted.
     const modeKg = {}, modeCBM = {};
-    MODES.forEach(m => {
+    KG_MODES.forEach(m => {
         const rows = FILTERED.filter(r=>r.mode===m&&dispCpkg(r)!==null);
         if (rows.length) modeKg[m]  = avg(rows.map(r=>dispCpkg(r)));
+    });
+    CBM_MODES.forEach(m => {
         const cbmRows = FILTERED.filter(r=>r.mode===m&&dispCpcbm(r)!==null);
         if (cbmRows.length) modeCBM[m] = avg(cbmRows.map(r=>dispCpcbm(r)));
     });
@@ -854,6 +872,24 @@ function renderEfficiency() {
 }
 
 // ── Detail table ──────────────────────────────────────────────────────────────
+// One rate column, shown on whichever basis the mode is priced on, with the unit
+// stated. Previously this was always per-kg, which gave every sea shipment a
+// figure that read as a rate but was cost divided by a denominator the carrier
+// never billed against.
+function rateCell(r) {
+    if (pricedOnKg(r.mode)) {
+        const v = dispCpkg(r);
+        return v != null ? fmtPrecise(v) + '<span style="font-size:10px">/kg</span>' : '—';
+    }
+    if (pricedOnCbm(r.mode)) {
+        const v = dispCpcbm(r);
+        return v != null ? fmtAmt(v) + '<span style="font-size:10px">/CBM</span>' : '—';
+    }
+    return '—';
+}
+
+// Sorting a mixed-unit column can only ever sort within a mode, so the header
+// says as much rather than implying the values are comparable end to end.
 const COL_DEFS = [
     { key:'shipment_number', label:'Shipment #',  sortKey:'shipment_number'  },
     { key:'mode',            label:'Mode',         sortKey:'mode'             },
@@ -866,7 +902,7 @@ const COL_DEFS = [
     { key:'total_weight_kg', label:'Weight (kg)',  sortKey:'total_weight_kg', cls:'r' },
     { key:'total_cbm',       label:'CBM',          sortKey:'total_cbm',       cls:'r' },
     { key:'total',           label:'Total Cost',   sortKey:'total',           cls:'r' },
-    { key:'cpkg',            label:'Cost/kg',      sortKey:'cpkg',            cls:'r' },
+    { key:'cpkg',            label:'Rate',         sortKey:'cpkg',            cls:'r' },
     { key:'_cbar',           label:'Cost Split',   sortKey:null               },
 ];
 
@@ -957,7 +993,7 @@ function renderTable() {
                     return `<div style="font-size:13px">${dispLabel()} ${fmtAmt(dispTotal(r))}${warn}</div><div style="font-size:10px;color:var(--muted)">${DISPLAY_CCY==='usd'?'CNY '+fmtAmt(r.total_cny):'≈ USD '+fmtAmt(r.total_usd)}</div>`;
                 })()
                 : '<span style="color:#fbbf24;font-size:11px">⚠ no cost data</span>'}</td>
-            <td class="r" style="font-size:12px;color:var(--muted)">${dispCpkg(r)!=null?fmtPrecise(dispCpkg(r))+'<span style="font-size:10px">/kg</span>':'—'}</td>
+            <td class="r" style="font-size:12px;color:var(--muted)">${rateCell(r)}</td>
             <td><div class="cbar-wrap">${cbar}</div></td>
         </tr>`;
     }).join('');
@@ -1093,7 +1129,7 @@ function renderRateTrends() {
     }
 
     // $/kg chart
-    const kgModes = MODES.filter(m=>FILTERED.some(r=>r.mode===m&&dispCpkg(r)!=null));
+    const kgModes = KG_MODES.filter(m=>FILTERED.some(r=>r.mode===m&&dispCpkg(r)!=null));
     destroyChart('ch-cpkg-trend');
     if (monthKeys.length >= 2 && kgModes.length) {
         new Chart(document.getElementById('ch-cpkg-trend'), { type:'line',
@@ -1105,11 +1141,12 @@ function renderRateTrends() {
                     title:{display:true,text:`${dispLabel()}/kg`,color:'#7c87a0',font:{size:11}}} } } });
     } else {
         document.getElementById('ch-cpkg-trend').closest('.chart-wrap').innerHTML =
-            emptyState(monthKeys.length < 2 ? 'Need 2+ months of data' : 'No weight-based shipments');
+            emptyState(monthKeys.length < 2 ? 'Need 2+ months of data'
+                                           : `No ${listModes(KG_MODES).toLowerCase()} shipments in this period`);
     }
 
     // $/CBM chart
-    const cbmModes = MODES.filter(m=>FILTERED.some(r=>r.mode===m&&dispCpcbm(r)!=null));
+    const cbmModes = CBM_MODES.filter(m=>FILTERED.some(r=>r.mode===m&&dispCpcbm(r)!=null));
     destroyChart('ch-cpcbm-trend');
     if (monthKeys.length >= 2 && cbmModes.length) {
         new Chart(document.getElementById('ch-cpcbm-trend'), { type:'line',
@@ -1121,7 +1158,8 @@ function renderRateTrends() {
                     title:{display:true,text:`${dispLabel()}/CBM`,color:'#7c87a0',font:{size:11}}} } } });
     } else {
         document.getElementById('ch-cpcbm-trend').closest('.chart-wrap').innerHTML =
-            emptyState(monthKeys.length < 2 ? 'Need 2+ months of data' : 'No CBM-based shipments');
+            emptyState(monthKeys.length < 2 ? 'Need 2+ months of data'
+                                           : `No ${listModes(CBM_MODES).toLowerCase()} shipments in this period`);
     }
 }
 
