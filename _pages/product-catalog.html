@@ -55,11 +55,17 @@
         .toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px 28px;
                    background: var(--surface); border-bottom: 1px solid var(--border);
                    align-items: center; }
-        .toolbar input[type=search] {
+        /* Not scoped to .toolbar — the search box moved to the sidebar and lost
+           every one of these rules, falling back to the browser default white
+           box. font-family must be stated explicitly: form controls do not
+           inherit it, which is why the text rendered in a different typeface
+           from the rest of the page even before the move. */
+        input[type=search] {
             background: var(--surface2); border: 1px solid var(--border);
             color: var(--text); border-radius: 7px; padding: 7px 12px;
-            font-size: 13px; width: 260px; outline: none; }
-        .toolbar input[type=search]:focus { border-color: var(--accent); }
+            font-family: inherit; font-size: 13px; width: 260px; outline: none; }
+        input[type=search]:focus { border-color: var(--accent); }
+        input[type=search]::placeholder { color: var(--muted); }
         /* ── Multi-select dropdowns ── */
         .msel-wrap { position: relative; }
 
