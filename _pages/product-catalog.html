@@ -977,12 +977,17 @@ document.querySelectorAll('thead th[data-col]').forEach(th => {
 
 // ── Column visibility ────────────────────────────────────────
 // Default checked state for each column checkbox
+// Master carton columns are ON by default. The completeness bar says 47% but
+// gives no way to see WHICH SKUs are short, and the gap was only visible after
+// opening the column panel — so the page reported a problem it then hid. Carton
+// data is also the page's only downstream dependency (the estimator reads it),
+// which makes it the thing most worth showing.
 const _COL_DEFAULTS = {
     'cc-variant_title': true,  'cc-shopify_status': true, 'cc-price': true,
     'cc-weight': true,         'cc-item_dims': true,       'cc-wms': true,
+    'cc-carton_dims': true,    'cc-carton_weight': true,   'cc-carton_qty': true,
     'cc-variant_type': false,  'cc-segmentation': false,   'cc-product_type': false,
     'cc-mpn': false,           'cc-procurement_status': false,
-    'cc-carton_dims': false,   'cc-carton_weight': false,  'cc-carton_qty': false,
 };
 
 function applyColVisibility() {
