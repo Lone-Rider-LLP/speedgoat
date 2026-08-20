@@ -13,11 +13,30 @@
             --text:    #e2e8f0;
             --muted:   #7c87a0;
             --accent:  #f97316;
+            --sb-w:    244px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--bg); color: var(--text);
                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-               font-size: 14px; min-height: 100vh; }
+               font-size: 14px; min-height: 100vh; display: flex; }
+
+        /* ── Sidebar ── */
+        /* Same structure as Outbound Shipments: fixed, its own scroll, and the
+           main column pushed across by the sidebar's width. */
+        .sidebar { width: var(--sb-w); flex-shrink: 0; background: var(--surface);
+                   border-right: 1px solid var(--border); display: flex; flex-direction: column;
+                   position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; z-index: 50; }
+        .sb-brand { padding: 18px 16px 4px; font-size: 11px; font-weight: 700;
+                    letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+        .sb-title { font-size: 13px; font-weight: 600; color: var(--text);
+                    padding: 2px 16px 14px; border-bottom: 1px solid var(--border); }
+        .sb-section { font-size: 10px; font-weight: 700; letter-spacing: .12em;
+                      text-transform: uppercase; color: var(--muted); padding: 15px 16px 7px; }
+        .sb-body { padding: 0 16px 8px; }
+        .sb-note { padding: 2px 16px 12px; font-size: 10.5px; color: var(--muted);
+                   line-height: 1.45; opacity: .85; }
+        .main-wrap { margin-left: var(--sb-w); flex: 1; min-width: 0;
+                     display: flex; flex-direction: column; min-height: 100vh; }
 
         /* ── Header ── */
         header { background: var(--surface); border-bottom: 1px solid var(--border);
@@ -43,6 +62,17 @@
         .toolbar input[type=search]:focus { border-color: var(--accent); }
         /* ── Multi-select dropdowns ── */
         .msel-wrap { position: relative; }
+
+        /* In the sidebar the dropdowns become inline collapsibles. An absolutely
+           positioned panel would be cut off by the sidebar's overflow-y scroll,
+           so it expands in place and pushes what follows down. */
+        .sidebar .msel-wrap  { position: static; padding: 0 16px 4px; }
+        .sidebar .msel-btn   { width: 100%; justify-content: space-between; }
+        .sidebar .msel-panel { position: static; width: auto; margin-top: 5px;
+                               box-shadow: none; max-height: 220px; }
+        .sidebar input[type=search] { width: 100%; }
+        .sidebar .chip-row { padding: 0 16px 2px; gap: 5px; }
+        .sidebar .chip { font-size: 11px; padding: 3px 9px; }
         .msel-btn { background: var(--surface2); border: 1px solid var(--border);
                     color: var(--muted); border-radius: 7px; padding: 7px 12px;
                     font-size: 13px; cursor: pointer; transition: all .15s;
@@ -265,6 +295,94 @@
 </head>
 <body>
 
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+    <div class="sb-brand">SpeedGoat</div>
+    <div class="sb-title">Product Catalog</div>
+
+    <div class="sb-section">Search</div>
+    <div class="sb-body"><input type="search" id="search" placeholder="Search SKU or product name…"></div>
+
+    <div class="sb-section">Status</div>
+<div class="msel-wrap">
+        <button class="msel-btn" id="status-btn" onclick="toggleMsel('status')">
+            <span id="status-label">All statuses</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="status-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('status')">Clear</button>
+            <label class="col-check"><input type="checkbox" value="active"> Active</label>
+            <label class="col-check"><input type="checkbox" value="draft"> Draft</label>
+            <label class="col-check"><input type="checkbox" value="archived"> Archived</label>
+        </div>
+    </div>
+
+    <div class="sb-section">Product type</div>
+<div class="msel-wrap">
+        <button class="msel-btn" id="type-btn" onclick="toggleMsel('type')">
+            <span id="type-label">All product types</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="type-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('type')">Clear</button>
+        </div>
+    </div>
+
+    <div class="sb-section">Procurement status</div>
+<div class="msel-wrap">
+        <button class="msel-btn" id="procurement-btn" onclick="toggleMsel('procurement')">
+            <span id="procurement-label">All procurement statuses</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="procurement-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('procurement')">Clear</button>
+        </div>
+    </div>
+
+    <div class="sb-section">Segmentation</div>
+<div class="msel-wrap">
+        <button class="msel-btn" id="segmentation-btn" onclick="toggleMsel('segmentation')">
+            <span id="segmentation-label">All segmentations</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="segmentation-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('segmentation')">Clear</button>
+        </div>
+    </div>
+
+    <div class="sb-section">Variant type</div>
+<div class="msel-wrap">
+        <button class="msel-btn" id="varianttype-btn" onclick="toggleMsel('varianttype')">
+            <span id="varianttype-label">All variant types</span><span class="msel-arrow">▾</span>
+        </button>
+        <div class="msel-panel" id="varianttype-panel" style="display:none">
+            <button class="msel-clear" onclick="clearMsel('varianttype')">Clear</button>
+        </div>
+    </div>
+
+    <div class="sb-section">Missing from 3PL</div>
+    <div class="chip-row" id="wms-chips">
+        <span class="chip" data-wms="in_goodcang">AU-GoodCang</span>
+        <span class="chip" data-wms="in_propack">CA-Propack</span>
+        <span class="chip" data-wms="in_zenventory">CN-LHS</span>
+        <span class="chip" data-wms="in_activeants">EU-ActiveAnts</span>
+        <span class="chip" data-wms="in_mintsoft">UK-Mintsoft</span>
+        <span class="chip" data-wms="in_novex">US-Novex</span>
+    </div>
+    <div class="sb-note">Active SKUs not set up in that warehouse system.</div>
+
+    <div class="sb-section">Missing data</div>
+    <div class="chip-row" id="missing-data-chips">
+        <span class="chip" data-missing="product_label_name">Product Label Name</span>
+        <span class="chip" data-missing="item_length_cm">Item Dims</span>
+        <span class="chip" data-missing="master_carton_length_cm">Carton Dims</span>
+        <span class="chip" data-missing="procurement_status">Procurement Status</span>
+        <span class="chip" data-missing="variant_type">Variant Type</span>
+        <span class="chip" data-missing="segmentation">Segmentation</span>
+        <span class="chip" data-missing="mpn">MPN</span>
+    </div>
+    <div class="sb-note" style="padding-bottom:22px">Counted on active SKUs. Carton Dims is the
+        one that feeds the Shipping Estimator.</div>
+</aside>
+
+<div class="main-wrap">
+
 <header>
     <div class="hdr-left">
         <h1>SpeedGoat — Product Catalog</h1>
@@ -286,57 +404,7 @@
 </nav>
 
 <div class="toolbar">
-    <input type="search" id="search" placeholder="Search SKU or product name…">
-
-    <div class="msel-wrap">
-        <button class="msel-btn" id="status-btn" onclick="toggleMsel('status')">
-            <span id="status-label">All statuses</span><span class="msel-arrow">▾</span>
-        </button>
-        <div class="msel-panel" id="status-panel" style="display:none">
-            <button class="msel-clear" onclick="clearMsel('status')">Clear</button>
-            <label class="col-check"><input type="checkbox" value="active"> Active</label>
-            <label class="col-check"><input type="checkbox" value="draft"> Draft</label>
-            <label class="col-check"><input type="checkbox" value="archived"> Archived</label>
-        </div>
-    </div>
-
-    <div class="msel-wrap">
-        <button class="msel-btn" id="type-btn" onclick="toggleMsel('type')">
-            <span id="type-label">All product types</span><span class="msel-arrow">▾</span>
-        </button>
-        <div class="msel-panel" id="type-panel" style="display:none">
-            <button class="msel-clear" onclick="clearMsel('type')">Clear</button>
-        </div>
-    </div>
-
-    <div class="msel-wrap">
-        <button class="msel-btn" id="procurement-btn" onclick="toggleMsel('procurement')">
-            <span id="procurement-label">All procurement statuses</span><span class="msel-arrow">▾</span>
-        </button>
-        <div class="msel-panel" id="procurement-panel" style="display:none">
-            <button class="msel-clear" onclick="clearMsel('procurement')">Clear</button>
-        </div>
-    </div>
-
-    <div class="msel-wrap">
-        <button class="msel-btn" id="segmentation-btn" onclick="toggleMsel('segmentation')">
-            <span id="segmentation-label">All segmentations</span><span class="msel-arrow">▾</span>
-        </button>
-        <div class="msel-panel" id="segmentation-panel" style="display:none">
-            <button class="msel-clear" onclick="clearMsel('segmentation')">Clear</button>
-        </div>
-    </div>
-
-    <div class="msel-wrap">
-        <button class="msel-btn" id="varianttype-btn" onclick="toggleMsel('varianttype')">
-            <span id="varianttype-label">All variant types</span><span class="msel-arrow">▾</span>
-        </button>
-        <div class="msel-panel" id="varianttype-panel" style="display:none">
-            <button class="msel-clear" onclick="clearMsel('varianttype')">Clear</button>
-        </div>
-    </div>
-
-    <button id="clear-btn" class="clear-btn" style="display:none" onclick="clearAllFilters()">× Clear filters</button>
+<button id="clear-btn" class="clear-btn" style="display:none" onclick="clearAllFilters()">× Clear filters</button>
     <span class="result-count" id="result-count"></span>
     <div class="toolbar-right">
         <button class="dl-btn" id="col-toggle-btn" onclick="toggleColPanel()">⚙ Columns</button>
@@ -375,27 +443,6 @@
                 </button>
             </div>
         </div>
-    </div>
-
-    <div class="chip-row" id="wms-chips">
-        <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing from:</span>
-        <span class="chip" data-wms="in_goodcang">AU-GoodCang</span>
-        <span class="chip" data-wms="in_propack">CA-Propack</span>
-        <span class="chip" data-wms="in_zenventory">CN-LHS</span>
-        <span class="chip" data-wms="in_activeants">EU-ActiveAnts</span>
-        <span class="chip" data-wms="in_mintsoft">UK-Mintsoft</span>
-        <span class="chip" data-wms="in_novex">US-Novex</span>
-    </div>
-
-    <div class="chip-row" id="missing-data-chips">
-        <span style="font-size:12px;color:var(--muted);margin-right:2px">Missing data:</span>
-        <span class="chip" data-missing="product_label_name">Product Label Name</span>
-        <span class="chip" data-missing="item_length_cm">Item Dims</span>
-        <span class="chip" data-missing="master_carton_length_cm">Carton Dims</span>
-        <span class="chip" data-missing="procurement_status">Procurement Status</span>
-        <span class="chip" data-missing="variant_type">Variant Type</span>
-        <span class="chip" data-missing="segmentation">Segmentation</span>
-        <span class="chip" data-missing="mpn">MPN</span>
     </div>
 </div>
 
@@ -926,17 +973,24 @@ function togglePresentFilter(field) {
 }
 
 // ── Multi-select helpers ─────────────────────────────────────
+// Accordion: one filter section open at a time keeps the sidebar short. Only the
+// other filter sections are collapsed — the column panel is left alone.
 function toggleMsel(id) {
     const panel  = document.getElementById(id + '-panel');
     const isOpen = panel.style.display !== 'none';
-    closeAllPanels();
+    closeMselPanels();
     if (!isOpen) panel.style.display = 'block';
 }
 
-function closeAllPanels() {
+function closeMselPanels() {
     document.querySelectorAll('.msel-panel').forEach(p => p.style.display = 'none');
-    document.getElementById('col-panel').style.display = 'none';
 }
+
+function closeColPanel() {
+    const p = document.getElementById('col-panel');
+    if (p) p.style.display = 'none';
+}
+
 
 function clearMsel(id) {
     document.getElementById(id + '-panel')
@@ -951,6 +1005,7 @@ function updateMselState(id) {
     cfg.set = new Set(checked);
     const label = document.getElementById(id + '-label');
     const btn   = document.getElementById(id + '-btn');
+    if (!label || !btn) { applyFilters(); return; }
     if (checked.length === 0) {
         label.textContent = cfg.allLabel;
         btn.classList.remove('active');
@@ -1165,18 +1220,24 @@ function resetColumns() {
     applyColVisibility();
 }
 
+// Opening Columns should not collapse whichever filter you were working in —
+// they are in different regions of the page now.
 function toggleColPanel() {
     const panel  = document.getElementById('col-panel');
     const isOpen = panel.style.display !== 'none';
-    closeAllPanels();
+    closeColPanel();
     if (!isOpen) panel.style.display = 'block';
 }
 
-// Close all panels when clicking outside
 document.addEventListener('click', e => {
-    if (!e.target.closest('.msel-wrap') && !e.target.closest('.toolbar-right')) {
-        closeAllPanels();
-    }
+    // The column panel floats over the table, so any click outside it closes it.
+    if (!e.target.closest('.toolbar-right')) closeColPanel();
+
+    // The filter sections are inline in the sidebar now, not floating dropdowns,
+    // so they collapse only when you leave the sidebar entirely. Previously any
+    // click outside .msel-wrap shut them, which meant ticking a chip or typing in
+    // the search box snapped the open filter closed mid-task.
+    if (!e.target.closest('.sidebar')) closeMselPanels();
 });
 
 // Wire up column toggle checkboxes
@@ -1189,5 +1250,7 @@ applyColVisibility();
 
 init();
 </script>
+
+</div><!-- /.main-wrap -->
 </body>
 </html>
