@@ -176,7 +176,8 @@
         .empty { padding: 48px; text-align: center; color: var(--muted); font-size: 13px; }
 
         /* ── Summary chips ── */
-        .summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+        .summary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+                       align-items: center; }
         .stat-chip { background: var(--surface); border: 1px solid var(--border);
                      border-radius: 8px; padding: 10px 16px; font-size: 12px; color: var(--muted);
                      cursor: pointer; transition: all .15s; user-select: none; }
@@ -699,18 +700,29 @@ function renderSummary() {
     const zero   = active.filter(r => covCount(r) === 0).length;
 
     // ── Stat chips ──
+    // These measure 3PL LISTING — whether a SKU is set up in each of the six
+    // warehouse systems. Previously labelled "coverage", which collided with the
+    // Carton Data bar directly below, so the same word meant two unrelated things
+    // forty pixels apart. "Active" is reserved for shopify_status.
+    //
+    // Labels are self-describing, so no group heading is needed above the row.
     const stats = [
-        { label: 'Total SKUs',    value: total,          stat: 'all'    },
-        { label: 'Active',        value: active.length,  stat: 'active' },
-        { label: 'Full 3PL listing', value: full,           stat: 'full'   },
-        { label: '3PL listing gaps', value: gaps,           stat: 'gaps'   },
-        { label: 'No 3PL listing',   value: zero,           stat: 'zero',   danger: zero > 0 },
+        { label: 'Total SKUs',        value: total,          stat: 'all',
+          tip: 'All SKUs, excluding bundle and placeholder SKUs' },
+        { label: 'Active',            value: active.length,  stat: 'active',
+          tip: 'Shopify status is active' },
+        { label: 'Full 3PL listing',  value: full,           stat: 'full',
+          tip: 'Set up in all six warehouse systems' },
+        { label: '3PL listing gaps',  value: gaps,           stat: 'gaps',
+          tip: 'Set up in some warehouse systems but not all' },
+        { label: 'No 3PL listing',    value: zero,           stat: 'zero',   danger: zero > 0,
+          tip: 'Active SKUs not set up in any warehouse system' },
     ];
     document.getElementById('summary-row').innerHTML = stats.map(s => {
         const isActive    = s.stat === 'all' ? _statFilter === null : _statFilter === s.stat;
         const dangerClass = s.danger && !isActive ? ' danger' : '';
         return `<div class="stat-chip${isActive ? ' active' : ''}${dangerClass}" data-stat="${s.stat}"
-                    title="${s.stat === 'zero' ? 'Active SKUs not in any warehouse' : ''}">
+                    title="${s.tip || ''}">
             <strong>${s.value.toLocaleString()}</strong>${s.label}
         </div>`;
     }).join('');
@@ -736,7 +748,7 @@ function renderSummary() {
     const pct   = cartonPool.length > 0 ? Math.round(cartonOk / cartonPool.length * 100) : 0;
     const color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#eab308' : '#ef4444';
     document.getElementById('carton-bar').innerHTML = `
-        <span class="carton-bar-label" title="All five carton fields must be present and positive: length, width, height, weight, units per carton.${bundleCount > 0 ? `\n\n${bundleCount} bundle SKUs are excluded — bundles ship as their components and carry no carton dimensions of their own.` : ''}">Carton data completeness</span>
+        <span class="carton-bar-label" title="All five carton fields must be present and positive: length, width, height, weight, units per carton.${bundleCount > 0 ? `\n\n${bundleCount} bundle SKUs are excluded — bundles ship as their components and carry no carton dimensions of their own.` : ''}\n\nSeparate from 3PL listing above, which is about warehouse setup rather than measurements.">Carton Data</span>
         <span class="carton-bar-count">${cartonOk.toLocaleString()} / ${cartonPool.length.toLocaleString()} active non-bundle SKUs</span>
         <div class="carton-progress">
             <div class="carton-progress-fill" style="width:${pct}%;background:${color}"></div>
