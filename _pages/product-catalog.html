@@ -702,9 +702,9 @@ function renderSummary() {
     const stats = [
         { label: 'Total SKUs',    value: total,          stat: 'all'    },
         { label: 'Active',        value: active.length,  stat: 'active' },
-        { label: 'Full coverage', value: full,           stat: 'full'   },
-        { label: 'Coverage gaps', value: gaps,           stat: 'gaps'   },
-        { label: 'No coverage',   value: zero,           stat: 'zero',   danger: zero > 0 },
+        { label: 'Full 3PL listing', value: full,           stat: 'full'   },
+        { label: '3PL listing gaps', value: gaps,           stat: 'gaps'   },
+        { label: 'No 3PL listing',   value: zero,           stat: 'zero',   danger: zero > 0 },
     ];
     document.getElementById('summary-row').innerHTML = stats.map(s => {
         const isActive    = s.stat === 'all' ? _statFilter === null : _statFilter === s.stat;
