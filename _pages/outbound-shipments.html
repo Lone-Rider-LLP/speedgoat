@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpeedGoat — Outbound Shipments</title>
+    <title>SpeedGoat — Stock Transfers</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
         :root {
@@ -178,7 +178,7 @@
 <!-- ── Sidebar ── -->
 <aside class="sidebar">
     <div class="sb-brand">SpeedGoat</div>
-    <div class="sb-title">Outbound Shipments</div>
+    <div class="sb-title">Stock Transfers</div>
 
     <div class="sb-section">Navigate</div>
     <nav class="sb-nav" id="sb-nav">
@@ -255,7 +255,7 @@
 
 <header>
     <div class="hdr-left">
-        <h1>Outbound Shipments</h1>
+        <h1>Stock Transfers</h1>
         <p id="hdr-sub">Loading…</p>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -265,8 +265,8 @@
 </header>
 
 <nav class="page-nav">
-    <a href="index.html">Warehouse KPIs</a>
-    <a href="outbound-shipments.html" class="active">Outbound Shipments</a>
+    <a href="index.html">3PL Fulfilment</a>
+    <a href="outbound-shipments.html" class="active">Stock Transfers</a>
     <a href="product-catalog.html">Product Catalog</a>
     <a href="bundle-mapping.html">Bundle Mapping</a>
     <a href="transportation-costs.html">Transportation Costs</a>
@@ -469,7 +469,7 @@ const MS = {
     status: { sel:new Set(), opts:[], noun:'statuses',     field:s=>s.status },
 };
 
-// Rendered as sidebar checkbox lists, matching the Warehouse KPIs page.
+// Rendered as sidebar checkbox lists, matching the 3PL Fulfilment page.
 // All boxes start ticked so the default state reads as "everything included",
 // and unticking is how you narrow — which is what the KPI page does.
 function msBuild(key) {
