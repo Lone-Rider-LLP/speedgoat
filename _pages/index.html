@@ -757,6 +757,12 @@ function updateRowStyle(wsi, excluded) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const daysAgo     = n => new Date(Date.now()-n*864e5).toISOString();
 const toDateInput = d => { const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+// Calendar days from a to b inclusive, compared at local midnight so the time
+// of day on either bound cannot introduce a fractional day.
+const inclusiveDays = (a, b) => {
+    const m = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    return Math.round((m(b) - m(a)) / 864e5) + 1;
+};
 const fromDateInput = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
 const avg      = a => a.length ? a.reduce((s,v)=>s+v,0)/a.length : null;
 const fmtDt    = dt => dt ? new Date(dt).toLocaleString('en-ZA',{
@@ -833,9 +839,13 @@ function toggleWh(wh, on) {
     G.whFilter[on?'add':'delete'](wh);
     applyFilters();
 }
+// n is a count of calendar days INCLUDING today, so "30d" spans 30 days rather
+// than 31. Previously from was set n days back, giving n+1 days inclusive, and
+// the label then added one more on top — so the 30d button reported "last 32
+// days" and no preset ever matched its own label.
 function setPreset(n) {
     const to=new Date(); to.setHours(23,59,59,999);
-    const from=new Date(Date.now()-n*864e5); from.setHours(0,0,0,0);
+    const from=new Date(Date.now()-(n-1)*864e5); from.setHours(0,0,0,0);
     G.dateFrom=from; G.dateTo=to;
     const fi=document.getElementById('date-from'), ti=document.getElementById('date-to');
     if(fi) fi.value=toDateInput(from);
@@ -918,7 +928,11 @@ function renderKPIs() {
         slaPct!==null?`${slaPct.toFixed(1)}%`:'—',
         slaRows.length?`${slaRows.length.toLocaleString()} orders with data`:'No matched orders',
         slaPct===null?'blue':slaPct>=90?'green':slaPct>=70?'yellow':'red');
-    G.rangeDays = G.dateFrom && G.dateTo ? Math.round((new Date(G.dateTo)-new Date(G.dateFrom))/864e5)+1 : '';
+    // Counted between local midnights. Subtracting the raw timestamps mixed a
+    // 23:59:59.999 end with a 00:00 start, so the fractional day rounded up and
+    // then had one added — the source of the "32 days" on a 30d preset. Using
+    // date components also survives a daylight-saving change inside the range.
+    G.rangeDays = (G.dateFrom && G.dateTo) ? inclusiveDays(G.dateFrom, G.dateTo) : '';
     kpi('kpi-carriers','Active Carriers', carriers, `last ${G.rangeDays} days`, 'blue');
 }
 
@@ -1975,7 +1989,19 @@ async function init() {
     //                 (b) ActiveAnts IsReady=FALSE orders from dedicated sync table
     // Exclude warehouses that have dedicated pending views — their unshipped
     // shipment records would otherwise duplicate and override the dedicated view entries.
-    const PENDING_VIEW_SLUGS = new Set(['mintsoft', 'goodcang', 'zenventory']);
+    // The slug list and the sources are declared together so they cannot drift
+    // apart. They already had: four dedicated views were merged in below but
+    // only three slugs were excluded here, so every unshipped ActiveAnts order
+    // arrived twice — once from vw_shipments and once from its own view — keyed
+    // on warehouse_shipment_id in one and warehouse_order_id in the other, so
+    // the de-duplication in renderPending could not collapse them.
+    const DEDICATED_PENDING = [
+        { slug: 'activeants', rows: aaPending },
+        { slug: 'goodcang',   rows: gcPending },
+        { slug: 'mintsoft',   rows: mintPending },
+        { slug: 'zenventory', rows: zenPending },
+    ];
+    const PENDING_VIEW_SLUGS = new Set(DEDICATED_PENDING.map(d => d.slug));
     const pendingFromShipments = pendingShips
         .filter(s => !PENDING_VIEW_SLUGS.has(s.warehouse_slug))
         .map(s => {
@@ -1985,29 +2011,10 @@ async function init() {
             return { ...s, order_created_at: oc||null, otsH:null, withinSla:null,
                      reason_code:null, note:'', exclude_from_avg:false };
         });
-    const pendingFromAA = aaPending.map(s => ({
-        warehouse_name:        s.warehouse_name,
-        warehouse_slug:        s.warehouse_slug,
-        // use warehouse_order_id as the shipment id key for deduplication
-        warehouse_shipment_id: s.warehouse_order_id,
-        shopify_order_number:  s.shopify_order_number,
-        warehouse_status:      s.warehouse_status,
-        order_created_at:      s.order_created_at,
-        shipped_at:            null,
-        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
-    }));
-    const pendingFromGC = gcPending.map(s => ({
-        warehouse_name:        s.warehouse_name,
-        warehouse_slug:        s.warehouse_slug,
-        // use warehouse_order_id as the shipment id key for deduplication
-        warehouse_shipment_id: s.warehouse_order_id,
-        shopify_order_number:  s.shopify_order_number,
-        warehouse_status:      s.warehouse_status,
-        order_created_at:      s.order_created_at,
-        shipped_at:            null,
-        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
-    }));
-    const pendingFromMint = mintPending.map(s => ({
+    // All four dedicated views return the same shape, so one mapper covers them.
+    // warehouse_order_id becomes the id key, matching how renderPending
+    // de-duplicates.
+    const mapDedicated = s => ({
         warehouse_name:        s.warehouse_name,
         warehouse_slug:        s.warehouse_slug,
         warehouse_shipment_id: s.warehouse_order_id,
@@ -2015,19 +2022,11 @@ async function init() {
         warehouse_status:      s.warehouse_status,
         order_created_at:      s.order_created_at,
         shipped_at:            null,
-        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
-    }));
-    const pendingFromZen = zenPending.map(s => ({
-        warehouse_name:        s.warehouse_name,
-        warehouse_slug:        s.warehouse_slug,
-        warehouse_shipment_id: s.warehouse_order_id,
-        shopify_order_number:  s.shopify_order_number,
-        warehouse_status:      s.warehouse_status,
-        order_created_at:      s.order_created_at,
-        shipped_at:            null,
-        otsH:null, withinSla:null, reason_code:null, note:'', exclude_from_avg:false,
-    }));
-    G.pending = [...pendingFromShipments, ...pendingFromAA, ...pendingFromGC, ...pendingFromMint, ...pendingFromZen];
+        otsH: null, withinSla: null, reason_code: null, note: '', exclude_from_avg: false,
+    });
+    const pendingFromViews = DEDICATED_PENDING.flatMap(d => d.rows.map(mapDedicated));
+
+    G.pending = [...pendingFromShipments, ...pendingFromViews];
 
     applyFilters();
 
