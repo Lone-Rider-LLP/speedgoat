@@ -193,6 +193,10 @@
                         display: flex; align-items: center; justify-content: space-between; }
         .save-status { font-size: 11px; color: #4ade80; transition: opacity .3s; }
         .save-status.hidden { opacity: 0; }
+        /* A failed save must not fade away like a successful one — it stays until
+           the next attempt, because an annotation that did not persist changes
+           the SLA denominator the user is about to quote. */
+        .save-status.failed { color: #f87171; font-weight: 600; }
 
         /* ── Detail table ── */
         .dtable { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -479,7 +483,7 @@
             <div class="row col2">
                 <div class="card">
                     <div class="card-title">Top SKUs by Units Shipped</div>
-                    <div class="card-subtitle">Across all warehouses in selected date range · from item-level data</div>
+                    <div class="card-subtitle">Item-level data · respects the date range and warehouse filters — scope stated below the table</div>
                     <div id="sku-table" style="overflow-x:auto;margin-top:8px"><div style="color:var(--muted);padding:20px;font-size:13px">Scroll to this section to load SKU data…</div></div>
                 </div>
                 <div class="card">
@@ -642,26 +646,59 @@ async function fetchAll(table, select, filters={}) {
 }
 
 // ── Annotation save ───────────────────────────────────────────────────────────
+// The response was previously not inspected, so a rejected write still showed
+// "✓ Saved". That matters more here than in most places: a reason code removes
+// the shipment from the SLA denominator, so a silent failure means quoting a
+// compliance figure that was never actually adjusted — and the annotation is
+// gone on the next page load with nothing to indicate it never landed.
 async function saveAnnotation(wsi, ws, son, updates) {
-    await fetch(`${URL_BASE}/rest/v1/shipment_annotations`, {
-        method: 'POST',
-        headers: { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}`,
-                   'Content-Type':'application/json',
-                   'Prefer':'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify({ warehouse_shipment_id:wsi, warehouse_slug:ws,
-            shopify_order_number:son, annotated_at:new Date().toISOString(), ...updates }),
-    });
     const el = document.getElementById('save-status');
-    el.classList.remove('hidden');
+    let ok = false, detail = '';
+    try {
+        const r = await fetch(`${URL_BASE}/rest/v1/shipment_annotations`, {
+            method: 'POST',
+            headers: { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}`,
+                       'Content-Type':'application/json',
+                       'Prefer':'resolution=merge-duplicates,return=minimal' },
+            body: JSON.stringify({ warehouse_shipment_id:wsi, warehouse_slug:ws,
+                shopify_order_number:son, annotated_at:new Date().toISOString(), ...updates }),
+        });
+        ok = r.ok;
+        if (!ok) detail = `${r.status} ${(await r.text()).slice(0, 120)}`;
+    } catch (err) {
+        detail = err.message;                      // offline, blocked, timeout
+    }
+
+    if (!el) return ok;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => el.classList.add('hidden'), 2500);
+    el.classList.remove('hidden');
+
+    if (ok) {
+        el.textContent = '✓ Saved';
+        el.classList.remove('failed');
+        el.title = '';
+        // Success fades; there is nothing to act on.
+        saveTimer = setTimeout(() => el.classList.add('hidden'), 2500);
+    } else {
+        el.textContent = '⚠ Not saved — retry';
+        el.classList.add('failed');
+        el.title = detail || 'The server rejected the change.';
+        console.error('Annotation save failed:', detail);
+        // Deliberately no timeout: this stays visible until the next attempt.
+    }
+    return ok;
 }
 
 // ── Annotation handlers ───────────────────────────────────────────────────────
-function onReasonChange(wsi, ws, son, sel) {
+// Applied locally first so the UI feels immediate, then rolled back if the save
+// is rejected. Without the rollback the KPI would show an adjustment that never
+// reached the database.
+async function onReasonChange(wsi, ws, son, sel) {
     const code = sel.value;
     const row  = G.enriched.find(r => r.warehouse_shipment_id===wsi && r.warehouse_slug===ws);
     if (!row) return;
+    const prevCode = row.reason_code, prevExcl = row.exclude_from_avg;
+
     const defExcl = code ? REASON_CODES[code].excludeByDefault : false;
     row.reason_code = code || null;
     row.exclude_from_avg = defExcl;
@@ -669,9 +706,18 @@ function onReasonChange(wsi, ws, son, sel) {
     const note = document.getElementById(`note-${wsi}`);
     if (chk)  chk.checked = defExcl;
     if (note) note.style.display = code ? 'inline-block' : 'none';
-    saveAnnotation(wsi, ws, son, { reason_code:code||null, exclude_from_avg:defExcl });
-    renderKPIs();
-    updateRowStyle(wsi, defExcl);
+    refreshAfterAnnotation(wsi, defExcl);
+
+    const ok = await saveAnnotation(wsi, ws, son,
+        { reason_code:code||null, exclude_from_avg:defExcl });
+    if (!ok) {
+        row.reason_code = prevCode;
+        row.exclude_from_avg = prevExcl;
+        sel.value = prevCode || '';
+        if (chk)  chk.checked = !!prevExcl;
+        if (note) note.style.display = prevCode ? 'inline-block' : 'none';
+        refreshAfterAnnotation(wsi, prevExcl);
+    }
 }
 function onNoteChange(wsi, ws, son, el) {
     const row = G.enriched.find(r => r.warehouse_shipment_id===wsi && r.warehouse_slug===ws);
@@ -679,13 +725,29 @@ function onNoteChange(wsi, ws, son, el) {
     clearTimeout(el._t);
     el._t = setTimeout(() => saveAnnotation(wsi, ws, son, { note:el.value }), 800);
 }
-function onExcludeChange(wsi, ws, son, el) {
+async function onExcludeChange(wsi, ws, son, el) {
     const row = G.enriched.find(r => r.warehouse_shipment_id===wsi && r.warehouse_slug===ws);
+    const prev = row ? row.exclude_from_avg : null;
     if (row) row.exclude_from_avg = el.checked;
-    saveAnnotation(wsi, ws, son, { exclude_from_avg:el.checked });
-    renderKPIs();
-    updateRowStyle(wsi, el.checked);
+    refreshAfterAnnotation(wsi, el.checked);
+
+    const ok = await saveAnnotation(wsi, ws, son, { exclude_from_avg:el.checked });
+    if (!ok) {
+        if (row) row.exclude_from_avg = prev;
+        el.checked = !!prev;
+        refreshAfterAnnotation(wsi, prev);
+    }
 }
+
+// Excluding a shipment changes the KPI cards AND the per-warehouse charts.
+// Previously only the cards were redrawn, so the two disagreed until a filter
+// was touched — the same figure reading differently in two places on one screen.
+function refreshAfterAnnotation(wsi, excluded) {
+    renderKPIs();
+    renderAllCharts();
+    updateRowStyle(wsi, excluded);
+}
+
 function updateRowStyle(wsi, excluded) {
     const tr = document.getElementById(`tr-${wsi}`);
     if (!tr) return;
@@ -1427,25 +1489,58 @@ function renderPending() {
 }
 
 // ── SKU Analysis ──────────────────────────────────────────────────────────────
+// Warehouses whose item view failed on the last load, so the table can say so
+// rather than quietly reporting lower totals.
+let SKU_FAILED = [];
+
 async function loadAndRenderSKU() {
     if (G.items !== null) { renderSKUTable(); renderSKUChart(); return; }
+    SKU_FAILED = [];
     document.getElementById('sku-table').innerHTML =
         '<div style="color:var(--muted);padding:20px;font-size:13px">Loading SKU data…</div>';
     try {
-        const headers = { apikey:ANON_KEY, Authorization:`Bearer ${ANON_KEY}` };
-        const dateFrom = G.dateFrom.toISOString().slice(0,10);
-        const dateTo   = new Date(G.dateTo.getTime() + 864e5).toISOString().slice(0,10);
-        const results  = await Promise.all(Object.entries(ITEMS_VIEWS).map(async ([wh, cfg]) => {
-            const cols = cfg.select + ',shipped_at,shopify_order_number';
-            const u = new URL(`${URL_BASE}/rest/v1/${cfg.view}`);
-            u.searchParams.set('select',     cols);
-            u.searchParams.set('shipped_at', `gte.${dateFrom}`);
-            u.searchParams.set('limit',      '10000');
-            const r = await fetch(u, { headers });
-            if (!r.ok) return [];
-            return (await r.json()).map(row => ({ ...row, _wh: wh }));
-        }));
-        G.items = results.flat();
+        // Three faults fixed here on 20-Aug-2026:
+        //
+        // 1. dateTo was computed and then never added to the query, so only
+        //    `gte.dateFrom` was applied. SKU totals ran from the start of the
+        //    range through to today no matter what end date was selected —
+        //    correct by accident for "last N days", wrong for any past window.
+        // 2. The warehouse tick boxes were ignored, so every other section on
+        //    the page could be narrowed to one warehouse while this one silently
+        //    showed all six.
+        // 3. limit=10000 with no paging truncated without warning. fetchAll
+        //    pages properly, so it is used instead.
+        // toDateInput formats in LOCAL time. toISOString() would convert to UTC
+        // first, and since G.dateFrom is local midnight, in SAST (UTC+2) that
+        // lands on 22:00 the previous day — pulling in an extra day at the start.
+        // The end bound is exclusive on the day after, so the last day is whole.
+        const dateFrom = toDateInput(G.dateFrom);
+        const dateTo   = toDateInput(new Date(G.dateTo.getTime() + 864e5));
+
+        // Only the warehouses currently ticked, matching every other section.
+        const views = Object.entries(ITEMS_VIEWS).filter(([wh]) => G.whFilter.has(wh));
+        if (!views.length) {
+            G.items = [];
+        } else {
+            const results = await Promise.all(views.map(async ([wh, cfg]) => {
+                try {
+                    // Both bounds on one column must go through and=(...);
+                    // two `shipped_at` params would overwrite each other.
+                    const rows = await fetchAll(cfg.view,
+                        cfg.select + ',shipped_at,shopify_order_number',
+                        { and: `(shipped_at.gte.${dateFrom},shipped_at.lt.${dateTo})` });
+                    return rows.map(row => ({ ...row, _wh: wh }));
+                } catch (err) {
+                    // One warehouse view failing should not blank the whole
+                    // section, but it must be visible — see the note rendered
+                    // under the table.
+                    console.warn(`SKU items unavailable for ${wh}:`, err.message);
+                    SKU_FAILED.push(wh);
+                    return [];
+                }
+            }));
+            G.items = results.flat();
+        }
     } catch(e) {
         document.getElementById('sku-table').innerHTML =
             `<div style="color:var(--muted);padding:20px;font-size:13px">Could not load SKU data: ${e.message}</div>`;
@@ -1490,7 +1585,24 @@ function renderSKUTable() {
             <td class="r">${r.orders.size}</td>
             <td style="font-size:11px;color:var(--muted)">${[...r.whs].join(', ')}</td>
         </tr>`).join('')}
-        </tbody></table>`;
+        </tbody></table>` + skuScopeNote();
+}
+
+// States the period and warehouses these totals actually cover. The card
+// subtitle used to claim "across all warehouses in selected date range" while
+// the query honoured neither, so the scope is now printed from the same values
+// the query used rather than asserted in static text.
+function skuScopeNote() {
+    const d  = t => t.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+    const wh = [...G.whFilter];
+    const scope = wh.length === WAREHOUSES.length
+        ? 'all warehouses'
+        : `${wh.length} of ${WAREHOUSES.length} warehouses (${wh.join(', ')})`;
+    const failed = SKU_FAILED.length
+        ? `<br><span style="color:var(--amber)">Item data unavailable for ${SKU_FAILED.join(', ')} — totals exclude ${SKU_FAILED.length === 1 ? 'it' : 'them'}.</span>`
+        : '';
+    return `<p style="font-size:11px;color:var(--muted);padding:8px 2px 0;line-height:1.5">
+        ${d(G.dateFrom)} to ${d(G.dateTo)} · ${scope}${failed}</p>`;
 }
 
 function renderSKUChart() {
